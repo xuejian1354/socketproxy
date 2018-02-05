@@ -19,7 +19,14 @@
 
 #include "globals.h"
 #include <sys/socket.h>
+#include <sys/types.h>
+#include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netdb.h>
+#include <unistd.h>
+#include <errno.h>
+
+
 
 #define RECV_PACK_START	'$'
 
@@ -28,6 +35,12 @@
 #define RECV_CMD_CLOSE		2
 #define RECV_CMD_MAC		3
 #define RECV_CMD_HEART		4
+
+#define RECV_PACK_DATA_OPEN_SUCCESS	"openSuccess"
+#define RECV_PACK_DATA_OPEN_FAIL	"openFail"
+#define RECV_PACK_DATA_MESSAGE		"message"
+#define RECV_PACK_DATA_CLOSE		"close"
+#define RECV_PACK_DATA_MAC			"mac"
 
 enum RecvActionEU
 {

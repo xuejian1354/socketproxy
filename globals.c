@@ -20,6 +20,12 @@ static int port;
 
 static void end_handler(int sig);
 
+void set_end(int end)
+{
+	end_flag = end;
+}
+
+
 int get_end()
 {
 	return end_flag;

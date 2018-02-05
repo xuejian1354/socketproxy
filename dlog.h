@@ -13,11 +13,16 @@
 extern "C" {
 #endif
 
+#define DLOG_PRINT
+
 #define AI_PRINTF(format, args...)	   \
 st(    \
 	printf(format, ##args);    \
 )
 
+#ifdef DLOG_PRINT
+#define AO_PRINTF AI_PRINTF
+#else
 #define AO_PRINTF(format, args...)  \
 st(  \
 	FILE *fp = NULL;    \
@@ -27,6 +32,19 @@ st(  \
         fclose(fp); \
     }   \
 )
+#endif
+
+
+#define PRINT_HEX(data, len)	\
+st(	\
+        int x;	\
+        for(x=0; x<len; x++)	\
+        {	\
+                AO_PRINTF("%02X ", data[x]);	\
+        }	\
+        AO_PRINTF("\n");	\
+)
+
 
 #ifdef __cplusplus
 }

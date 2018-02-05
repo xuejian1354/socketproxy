@@ -25,14 +25,16 @@ int main(int argc, char **argv)
 	}
 
 	AI_PRINTF("[%s] %s start, getpid=%d\n", get_current_time(), TARGET_NAME, getpid());
+#ifndef DLOG_PRINT
 	AO_PRINTF("[%s] %s start, getpid=%d\n", get_current_time(), TARGET_NAME, getpid());
+#endif
 
-	if (socket_tcp_client_connect(get_host(), get_port()) < 0)
+	if (select_init() < 0)
 	{
 		return 1;
 	}
 
-	if (select_init() < 0)
+	if (socket_tcp_client_connect(get_host(), get_port()) < 0)
 	{
 		return 1;
 	}
@@ -47,7 +49,9 @@ int main(int argc, char **argv)
 	}
 
 	AI_PRINTF("[%s] %d exit\n", get_current_time(), getpid());
+#ifndef DLOG_PRINT
 	AO_PRINTF("[%s] %d exit\n", get_current_time(), getpid());
+#endif
 	return 0;
 }
 

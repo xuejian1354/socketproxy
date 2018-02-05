@@ -74,9 +74,9 @@ int select_listen()
 	ret = pselect(maxfd+1, &current_rdfs, &current_wtfs, NULL, NULL, &sigmask);
 	if(ret > 0)
 	{
-		for(i=0; i<maxfd; i++)
+		for(i=0; i<maxfd+1; i++)
 		{
-			if(FD_ISSET(i, &current_rdfs))
+			if(FD_ISSET(i, &current_rdfs) || FD_ISSET(i, &current_wtfs))
 			{
 				return socket_tcp_client_recv(i);
 			}
@@ -84,7 +84,7 @@ int select_listen()
 	}
 	else if (ret < 0)
 	{
-		//perror("pselect");
+		perror("pselect");
 		return -1;
 	}
 

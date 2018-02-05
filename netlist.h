@@ -25,6 +25,9 @@
 typedef struct TCPConn
 {
 	int fd;
+	int isconnect;
+	int port;
+	char host[64];
 	struct sockaddr_in client_addr;
 	struct TCPConn *next;
 }tcp_conn_t;
@@ -39,7 +42,7 @@ typedef struct TCPConnList
 tcp_conn_list_t *get_tcp_conn_list();
 int addto_tcpconn_list(tcp_conn_t *list);
 tcp_conn_t *queryfrom_tcpconn_list(int fd);
-tcp_conn_t *queryfrom_tcpconn_list_with_ipaddr(char *ipaddr);
+tcp_conn_t *queryfrom_tcpconn_list_with_localport(int port);
 int delfrom_tcpconn_list(int fd);
 int delfrom_tcpconn_list_with_ipaddr(char *ipaddr);
 #endif  // __NETLIST_H__

@@ -18,6 +18,7 @@
 extern "C" {
 #endif
 
+void set_end(int end);
 int get_end();
 char *get_host();
 int get_port();
