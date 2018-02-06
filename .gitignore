@@ -1,0 +1,6 @@
+*.[oa]
+skproxy
+*.swp
+*.patch
+bin/
+test/
