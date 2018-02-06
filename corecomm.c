@@ -71,7 +71,7 @@ int select_listen()
 
 	fd_set current_rdfs = global_rdfs;
 	fd_set current_wtfs = global_wtfs;
-	ret = pselect(maxfd, &current_rdfs, &current_wtfs, NULL, NULL, &sigmask);
+	ret = pselect(maxfd, &current_rdfs, &current_wtfs, NULL, get_timespec(), &sigmask);
 	if(ret > 0)
 	{
 		for(i=0; i<maxfd; i++)
@@ -82,7 +82,11 @@ int select_listen()
 			}
 		}
 	}
-	else if (ret < 0)
+	else if (ret == 0)
+	{
+		time_handler();
+	}
+	else
 	{
 		perror("pselect");
 		return -1;

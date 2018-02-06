@@ -23,7 +23,78 @@
 static int nbytes;
 static char buf[MAXSIZE];
 
+struct timespec *select_time = NULL;
+struct timespec local_time;
+
+
+enum ConnStats g_connstat = CONN_STAT_SLEEP;
+
 void data_handler(int fd, char *data, int len);
+
+int get_rand(int min, int max) {
+	return (rand() % (max-min+1)) + min;
+}
+
+void set_timespec(time_t s)
+{
+	if(s == 0)
+	{
+		select_time = NULL;
+	}
+	else
+	{
+		local_time.tv_sec = s;
+		local_time.tv_nsec = 0;
+		select_time = &local_time;
+	}
+}
+
+struct timespec *get_timespec()
+{
+	return select_time;
+}
+
+void close_connection(int fd)
+{
+	close(fd);
+	select_clr(fd);
+}
+
+void release_connection_with_fd(int fd)
+{
+	close_connection(fd);
+	delfrom_tcpconn_list(fd);
+	AI_PRINTF("[%s] close, fd=%d\n", get_current_time(), fd);
+}
+
+void detect_link(int isup)
+{
+	tcp_conn_list_t *tconn_list = get_tcp_conn_list();
+	if(isup && g_connstat == CONN_STAT_SLEEP)
+	{
+		if(tconn_list->num >= SERVER_TCPLINK_NUM)
+		{
+			g_connstat = CONN_STAT_WORK;
+		}
+	}
+	else if(!isup && g_connstat == CONN_STAT_WORK)
+	{
+		if(tconn_list->num <= 10)
+		{
+			g_connstat = CONN_STAT_SLEEP;
+			clear_all_conn(close_connection);
+			set_timespec(get_rand(3600, 7200));
+		}
+	}
+}
+
+void time_handler()
+{
+	if(g_connstat == CONN_STAT_SLEEP)
+	{
+		net_tcp_connect(get_host_addr(), get_host_port());
+	}
+}
 
 uint32 get_socket_local_port(int fd)
 {
@@ -106,20 +177,15 @@ int net_tcp_recv(int fd)
 			tcp_conn_t *toconn = ((ext_conn_t *)(t_conn->extdata))->toconn;
 			if(toconn && toconn->isconnect)
 			{
-				AI_PRINTF("[%s] close, fd=%d\n", get_current_time(), toconn->fd);
-				close(toconn->fd);
-				select_clr(toconn->fd);
-				delfrom_tcpconn_list(toconn->fd);
+				release_connection_with_fd(toconn->fd);
 			}
 			else
 			{
 				((ext_conn_t *)(toconn->extdata))->toconn = NULL;
 			}
 
-			AI_PRINTF("[%s] close, fd=%d\n", get_current_time(), fd);
-			close(fd);
-			select_clr(fd);
-			delfrom_tcpconn_list(fd);
+			release_connection_with_fd(fd);
+			//detect_link(0);
 		}
 		else
 		{
@@ -131,6 +197,7 @@ int net_tcp_recv(int fd)
 	{
 		int errinfo, errlen;
 		errlen = sizeof(errlen);
+		int isup = 1;
 
         if (0 == getsockopt(fd, SOL_SOCKET, SO_ERROR, &errinfo, &errlen))    
         {
@@ -156,10 +223,8 @@ int net_tcp_recv(int fd)
 			{
 				if(((ext_conn_t *)(t_conn->extdata))->toconn == NULL)
 				{
-					AI_PRINTF("[%s] close, fd=%d\n", get_current_time(), fd);
-					close(fd);
-					select_clr(fd);
-					delfrom_tcpconn_list(fd);
+					isup = 0;
+					release_connection_with_fd(fd);
 				}
 			}
         }
@@ -169,6 +234,7 @@ int net_tcp_recv(int fd)
 				get_current_time(), t_conn->host_addr, fd);
 		}
 
+		//detect_link(isup);
 		select_wtclr(fd);
 	}
 

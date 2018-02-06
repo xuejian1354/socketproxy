@@ -163,3 +163,23 @@ int delfrom_tcpconn_list(int fd)
 	return -1;
 }
 
+void clear_all_conn(void (*del_call)(int))
+{
+	tcp_conn_t *t_list, *b_list;
+
+	t_list=tcp_conn_list.p_head;
+	while (t_list != NULL)
+	{
+		b_list = t_list;
+		t_list = t_list->next;
+
+		del_call(b_list->fd);
+
+		free(b_list->extdata);
+		free(b_list);
+	}
+
+	tcp_conn_list.p_head = NULL;
+	tcp_conn_list.num = 0;
+}
+

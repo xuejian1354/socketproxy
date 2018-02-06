@@ -20,6 +20,12 @@
 #include "globals.h"
 #include "netlist.h"
 
+enum ConnStats
+{
+	CONN_STAT_WORK,
+	CONN_STAT_SLEEP
+};
+
 enum ConnWay
 {
 	CONN_WITH_SERVER = 0,
@@ -34,8 +40,12 @@ typedef struct ExtConnData
 	struct timeval temp;
 }ext_conn_t;
 
+struct timespec *get_timespec();
+
 int net_tcp_connect();
 int net_tcp_recv(int fd);
+
+void time_handler();
 
 #endif  // __NETHANDLER_H__
 

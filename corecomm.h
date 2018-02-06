@@ -18,6 +18,7 @@
 #define __CORECOMM_H__
 
 #include "globals.h"
+#include "nethandler.h"
 
 int select_init();
 void select_set(int fd);
