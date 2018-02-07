@@ -1,8 +1,5 @@
 /*
  * mtypes.h
- *
- * Sam Chen <xuejian1354@163.com>
- *
  */
 #ifndef __MTYPES_H__
 #define __MTYPES_H__

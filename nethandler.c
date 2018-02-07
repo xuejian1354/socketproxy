@@ -1,18 +1,5 @@
 /*
  * nethandler.c
- *
- * Copyright (C) 2013 loongsky development.
- *
- * Sam Chen <xuejian1354@163.com>
- *
- * This software is licensed under the terms of the GNU General Public
- * License version 2, as published by the Free Software Foundation, and
- * may be copied, distributed, and modified under those terms.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
  */
 
 #include "nethandler.h"
@@ -26,14 +13,14 @@ static char buf[MAXSIZE];
 struct timespec *select_time = NULL;
 struct timespec local_time;
 
-
-enum ConnStats g_connstat = CONN_STAT_SLEEP;
+int serlink_count = 0;
 
 void data_handler(int fd, char *data, int len);
 
 int get_rand(int min, int max) {
 	return (rand() % (max-min+1)) + min;
 }
+
 
 void set_timespec(time_t s)
 {
@@ -60,40 +47,30 @@ void close_connection(int fd)
 	select_clr(fd);
 }
 
+void detect_link()
+{
+	if(serlink_count < get_max_connections_num())
+	{
+		set_timespec(get_rand(58, 118));
+	}
+	else if(serlink_count <= 10)
+	{
+		clear_all_conn(close_connection);
+		set_timespec(get_rand(1200, 2400));
+	}
+	else
+	{
+		set_timespec(0);
+	}
+}
+
 void release_connection_with_fd(int fd)
 {
+	detect_link();
 	close_connection(fd);
 	delfrom_tcpconn_list(fd);
-	AI_PRINTF("[%s] close, fd=%d\n", get_current_time(), fd);
-}
-
-void detect_link(int isup)
-{
-	tcp_conn_list_t *tconn_list = get_tcp_conn_list();
-	if(isup && g_connstat == CONN_STAT_SLEEP)
-	{
-		if(tconn_list->num >= SERVER_TCPLINK_NUM)
-		{
-			g_connstat = CONN_STAT_WORK;
-		}
-	}
-	else if(!isup && g_connstat == CONN_STAT_WORK)
-	{
-		if(tconn_list->num <= 10)
-		{
-			g_connstat = CONN_STAT_SLEEP;
-			clear_all_conn(close_connection);
-			set_timespec(get_rand(3600, 7200));
-		}
-	}
-}
-
-void time_handler()
-{
-	if(g_connstat == CONN_STAT_SLEEP)
-	{
-		net_tcp_connect(get_host_addr(), get_host_port());
-	}
+	AO_PRINTF("[%s] close, fd=%d, total=%d\n",
+		get_current_time(), fd, serlink_count);
 }
 
 uint32 get_socket_local_port(int fd)
@@ -118,11 +95,16 @@ tcp_conn_t *try_connect(char *host, int port, enum ConnWay way)
 		return NULL;
 	}
 
-	int flags = fcntl(fd, F_GETFL, 0);
-	fcntl(fd, F_SETFL, flags|O_NONBLOCK);
+	if(way != CONN_WITH_CLIENT)
+	{
+		int flags = fcntl(fd, F_GETFL, 0);
+		fcntl(fd, F_SETFL, flags|O_NONBLOCK);
+	}
 
 	ext_conn_t *extdata = calloc(1, sizeof(ext_conn_t));
+	extdata->toconn = NULL;
 	extdata->way = way;
+	extdata->isuse = 0;
 	tcp_conn_t *tconn = new_tcpconn(fd, 0, 0, host, port, extdata);
 	if(tconn == NULL)
 	{
@@ -131,7 +113,7 @@ tcp_conn_t *try_connect(char *host, int port, enum ConnWay way)
 	}
 
 	int res = connect(fd, (struct sockaddr *)&tconn->host_in, sizeof(tconn->host_in));
-	if(0 != res && errno != EINPROGRESS)
+	if(0 != res && (way == CONN_WITH_CLIENT || errno != EINPROGRESS))
 	{
 		perror("client tcp socket connect server fail");
 		AO_PRINTF("[%s] connect %s fail\n", get_current_time(), host);
@@ -142,10 +124,26 @@ tcp_conn_t *try_connect(char *host, int port, enum ConnWay way)
 	{
 		tconn->isconnect = 1;
 		tconn->port = get_socket_local_port(fd);
+		if(way != CONN_WITH_CLIENT)
+		{
+			serlink_count++;
+			detect_link();
+		}
+		AO_PRINTF("[%s] connect %s:%d, current port=%d, fd=%d, total=%d\n",
+				get_current_time(), tconn->host_addr,
+				tconn->host_port, tconn->port, fd, serlink_count);
 	}
 
 	addto_tcpconn_list(tconn);
-	select_wtset(fd);
+	if(way != CONN_WITH_CLIENT)
+	{
+		select_wtset(fd);
+	}
+	else
+	{
+		select_set(fd);
+	}
+
 	return tconn;
 }
 
@@ -153,7 +151,7 @@ tcp_conn_t *try_connect(char *host, int port, enum ConnWay way)
 int net_tcp_connect(char *host, int port)
 {
 	int i;
-	for(i=0; i<SERVER_TCPLINK_NUM; i++)
+	for(i=0; i<get_max_connections_num(); i++)
 	{
 		try_connect(get_host_addr(), get_host_port(), CONN_WITH_SERVER);
 	}
@@ -174,18 +172,43 @@ int net_tcp_recv(int fd)
 		memset(buf, 0, sizeof(buf));
 	   	if ((nbytes = recv(fd, buf, sizeof(buf), 0)) <= 0)
 	   	{
-			tcp_conn_t *toconn = ((ext_conn_t *)(t_conn->extdata))->toconn;
-			if(toconn && toconn->isconnect)
+			int isreconnect = 0;
+			ext_conn_t *extdata = (ext_conn_t *)(t_conn->extdata);
+			if(extdata)
 			{
-				release_connection_with_fd(toconn->fd);
-			}
-			else
-			{
-				((ext_conn_t *)(toconn->extdata))->toconn = NULL;
+				tcp_conn_t *toconn = extdata->toconn;
+				if(extdata->way == CONN_WITH_SERVER && toconn && toconn->isconnect)
+				{
+					AO_PRINTF("[%s] line:%d to target\n", get_current_time(), __LINE__);
+					release_connection_with_fd(toconn->fd);
+					AO_PRINTF("[%s] line:%d to server\n", get_current_time(), __LINE__);
+				}
+				else
+				{
+					if(extdata->way == CONN_WITH_SERVER)
+					{
+						AO_PRINTF("[%s] line:%d to server\n", get_current_time(), __LINE__);
+					}
+					else
+					{
+						AO_PRINTF("[%s] line:%d to target\n", get_current_time(), __LINE__);
+					}
+					toconn = NULL;
+				}
+
+				if(extdata->way == CONN_WITH_SERVER)
+				{
+					serlink_count--;
+					if(extdata->isuse)
+						isreconnect = 1;
+				}
 			}
 
 			release_connection_with_fd(fd);
-			//detect_link(0);
+			if(isreconnect)
+			{
+				try_connect(get_host_addr(), get_host_port(), CONN_WITH_SERVER);
+			}
 		}
 		else
 		{
@@ -197,7 +220,6 @@ int net_tcp_recv(int fd)
 	{
 		int errinfo, errlen;
 		errlen = sizeof(errlen);
-		int isup = 1;
 
         if (0 == getsockopt(fd, SOL_SOCKET, SO_ERROR, &errinfo, &errlen))    
         {
@@ -205,25 +227,21 @@ int net_tcp_recv(int fd)
 			t_conn->port = get_socket_local_port(fd);
 			select_set(fd);
 
-			AO_PRINTF("[%s] connect %s:%d, current port=%d, fd=%d\n",
-				get_current_time(), t_conn->host_addr,
-				t_conn->host_port, t_conn->port, fd);
-
 			if(((ext_conn_t *)(t_conn->extdata))->way == CONN_WITH_SERVER)
 			{
-				tcp_conn_t *cliconn = 
-					try_connect("127.0.0.1", get_transport(), CONN_WITH_CLIENT);
-				if(cliconn)
-				{
-					((ext_conn_t *)(t_conn->extdata))->toconn = cliconn;
-					((ext_conn_t *)(cliconn->extdata))->toconn = t_conn;
-				}
+				serlink_count++;
+				detect_link();
 			}
-			else if(((ext_conn_t *)(t_conn->extdata))->way == CONN_WITH_CLIENT)
+
+			AO_PRINTF("[%s] connect %s:%d, current port=%d, fd=%d, total=%d\n",
+				get_current_time(), t_conn->host_addr,
+				t_conn->host_port, t_conn->port, fd, serlink_count);
+
+			if(((ext_conn_t *)(t_conn->extdata))->way == CONN_WITH_CLIENT)
 			{
 				if(((ext_conn_t *)(t_conn->extdata))->toconn == NULL)
 				{
-					isup = 0;
+					AO_PRINTF("[%s] line:%d to target\n", get_current_time(), __LINE__);
 					release_connection_with_fd(fd);
 				}
 			}
@@ -234,19 +252,72 @@ int net_tcp_recv(int fd)
 				get_current_time(), t_conn->host_addr, fd);
 		}
 
-		//detect_link(isup);
 		select_wtclr(fd);
 	}
 
 	return 0;
 }
 
+void time_handler()
+{
+	if(serlink_count < get_max_connections_num())
+	{
+		int i = get_max_connections_num() - serlink_count;
+		while(i-- > 0)
+		{
+			try_connect(get_host_addr(), get_host_port(), CONN_WITH_SERVER);
+		}
+	}
+	else if(serlink_count <= 10)
+	{
+		net_tcp_connect(get_host_addr(), get_host_port());
+	}
+}
+
 void data_handler(int fd, char *data, int len)
 {
 	tcp_conn_t *tconn = queryfrom_tcpconn_list(fd);
-	if(tconn && ((ext_conn_t *)tconn->extdata)->toconn)
+	if(tconn)
 	{
-		send(((ext_conn_t *)tconn->extdata)->toconn->fd, data, len, 0);
+		if(((ext_conn_t *)(tconn->extdata))->toconn)
+		{
+			send(((ext_conn_t *)tconn->extdata)->toconn->fd, data, len, 0);
+			((ext_conn_t *)tconn->extdata)->isuse = 1;
+			if(((ext_conn_t *)(tconn->extdata))->way==CONN_WITH_SERVER)
+			{
+				AO_PRINTF("[%s] %s:%d ==> %s:%d, fd=%d\n", get_current_time(),
+					tconn->host_addr, tconn->host_port,
+					((ext_conn_t *)tconn->extdata)->toconn->host_addr,
+					((ext_conn_t *)tconn->extdata)->toconn->host_port,
+					tconn->fd);
+			}
+			else
+			{
+				AO_PRINTF("[%s] %s:%d <== %s:%d, fd=%d\n", get_current_time(),
+					((ext_conn_t *)tconn->extdata)->toconn->host_addr,
+					((ext_conn_t *)tconn->extdata)->toconn->host_port,
+					tconn->host_addr, tconn->host_port, tconn->fd);
+			}
+		}
+		else if(((ext_conn_t *)(tconn->extdata))->way == CONN_WITH_SERVER)
+		{
+			tcp_conn_t *cliconn = 
+				try_connect("127.0.0.1", get_transport(), CONN_WITH_CLIENT);
+			if(cliconn)
+			{
+				((ext_conn_t *)(tconn->extdata))->toconn = cliconn;
+				((ext_conn_t *)(cliconn->extdata))->toconn = tconn;
+				send(cliconn->fd, data, len, 0);
+				((ext_conn_t *)tconn->extdata)->isuse = 1;
+				AO_PRINTF("[%s] %s:%d ==> %s:%d, fd=%d\n",
+					get_current_time(),
+					tconn->host_addr,
+					tconn->host_port,
+					cliconn->host_addr,
+					cliconn->host_port, 
+					tconn->fd);
+			}
+		}
 	}
 	else
 	{

@@ -1,8 +1,5 @@
 /*
  * dlog.h
- *
- * Sam Chen <xuejian1354@163.com>
- *
  */
 #ifndef __DLOG_H__
 #define __DLOG_H__
@@ -13,26 +10,37 @@
 extern "C" {
 #endif
 
-#define TMP_LOG	"/tmp/skproxy.txt"
+#define TMP_LOG	"/tmp/skproxy.log"
 
-#define DLOG_PRINT
+//#define DLOG_PRINT
 
+#ifndef DLOG_PRINT
 #define AI_PRINTF(format, args...)	   \
 st(    \
 	printf(format, ##args);    \
 )
 
-#ifdef DLOG_PRINT
 #define AO_PRINTF AI_PRINTF
+
 #else
 #define AO_PRINTF(format, args...)  \
 st(  \
+	if(istest()) {	\
+		printf(format, ##args);	\
+	}	\
 	FILE *fp = NULL;    \
-    if((fp = fopen(TMP_LOG, "a+")) != NULL)   \
-    {   \
+    if((fp = fopen(TMP_LOG, "a+")) != NULL) {   \
         fprintf(fp, format, ##args);  \
         fclose(fp); \
     }   \
+)
+
+#define AI_PRINTF(format, args...)	   \
+st(    \
+	if(!istest()) {	\
+		printf(format, ##args);    \
+	}	\
+	AO_PRINTF(format, ##args);	\
 )
 #endif
 

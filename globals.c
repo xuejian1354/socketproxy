@@ -1,12 +1,16 @@
-/* globals.c
- *
- * Sam Chen <xuejian1354@163.com>
- *
+/*
+ * globals.c
  */
 #include "globals.h"
 #include <errno.h>
 #include <dirent.h>
 #include <signal.h>
+#include <sys/socket.h>  
+#include <sys/ioctl.h> 
+#include <netinet/if_ether.h>  
+#include <net/if.h>
+#include <linux/sockios.h>
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -14,12 +18,21 @@ extern "C" {
 
 static char current_time[64];
 static int end_flag = 1;
+static int test = 0;
 
 static char host_addr[64];
 static int host_port;
 static int transport = DEFAULT_TRANSPORT;
 
+static char macdev[64] = DEFAULT_MACDEV;
+static int maxconn = SERVER_TCPLINK_NUM;
+
 static void end_handler(int sig);
+
+int istest()
+{
+	return test;
+}
 
 void set_end(int end)
 {
@@ -47,6 +60,37 @@ int get_transport()
 	return transport;
 }
 
+int get_max_connections_num()
+{
+	return maxconn;
+}
+
+int get_host_port_with_mac(int min, int max)
+{
+	struct ifreq ifreq;
+	int sock;
+
+	if((sock=socket(AF_INET,SOCK_STREAM,0))<0)
+	{
+		return 0;
+	}
+
+	strcpy(ifreq.ifr_name, macdev);
+
+	if(ioctl(sock, SIOCGIFHWADDR, &ifreq) < 0)
+	{
+		return 0;
+	}
+
+	long macval = 0;
+	macval = (macval<<8) + ifreq.ifr_hwaddr.sa_data[0];
+	macval = (macval<<8) + ifreq.ifr_hwaddr.sa_data[1];
+	macval = (macval<<8) + ifreq.ifr_hwaddr.sa_data[2];
+	macval = (macval<<8) + ifreq.ifr_hwaddr.sa_data[3];
+	macval = (macval<<8) + ifreq.ifr_hwaddr.sa_data[4];
+	macval = (macval<<8) + ifreq.ifr_hwaddr.sa_data[5];
+	return (macval % (max-min+1)) + min;
+}
 
 void split_host_and_port(char *addrstr)
 {
@@ -60,10 +104,14 @@ void split_host_and_port(char *addrstr)
 			memset(host_addr, 0, sizeof(host_addr));
 			strncpy(host_addr, addrstr, i);
 			host_port = atoi(addrstr+i+1);
-			break;
+			return;
 		}
 		i++;
 	}
+
+	memset(host_addr, 0, sizeof(host_addr));
+	strcpy(host_addr, addrstr);
+	host_port = 0;
 }
 
 int start_params(int argc, char **argv)
@@ -72,17 +120,37 @@ int start_params(int argc, char **argv)
 	int isget = 0;
 	opterr = 0; 
 
-	const char *optstrs = "m:p:h";
+	const char *optstrs = "c:p:e:m:d:t:h";
     while((ch = getopt(argc, argv, optstrs)) != -1)
     {
 		switch(ch)
 		{
 		case 'h':
-			AI_PRINTF("Usage: %s -m <host:port> [-p transport]\n", argv[0]);
-			AI_PRINTF("  Default transport is %d\n", DEFAULT_TRANSPORT);
+			AI_PRINTF("Usage: %s [-t print|daemon] -c <host[:port]> [-p transport] [-e macdev] [-m maxconn]\n", argv[0]);
+			AI_PRINTF("Default\n");
+			AI_PRINTF("    port        (macdev dependence)\n");
+			AI_PRINTF("    transport   %d\n", DEFAULT_TRANSPORT);
+			AI_PRINTF("    macdev      %s\n", DEFAULT_MACDEV);
+			AI_PRINTF("    maxconn     %d\n", SERVER_TCPLINK_NUM);
 			return 1;
 
-		case 'm':
+		case 't':
+			isget = 1;
+			if(!strcmp(optarg, "print"))
+			{
+				test = 1;
+			}
+			else if(!strcmp(optarg, "daemon"))
+			{
+				if(fork() > 0) {
+					usleep(1000);
+					return 1;
+				}
+				setsid();
+			}
+			break;
+
+		case 'c':
 			isget = 1;
 			split_host_and_port(optarg);
 			break;
@@ -90,6 +158,17 @@ int start_params(int argc, char **argv)
 		case 'p':
 			isget = 1;
 			transport = atoi(optarg);
+			break;
+
+		case 'e':
+			isget = 1;
+			memset(macdev, 0, sizeof(macdev));
+			strcpy(macdev, optarg);
+			break;
+
+		case 'm':
+			isget = 1;
+			maxconn = atoi(optarg);
 			break;
 		}
 	}
@@ -99,6 +178,16 @@ int start_params(int argc, char **argv)
 		AI_PRINTF("Unrecognize arguments.\n");
 		AI_PRINTF("\'%s -h\' get more help infomations.\n", argv[0]);
 		return -1;
+	}
+
+	if(!host_port)
+	{
+		if((host_port = get_host_port_with_mac(40000, 50000)) == 0)
+		{
+			AI_PRINTF("Can't get mac addr from %s\n", macdev);
+			AI_PRINTF("\'%s -h\' get more help infomations.\n", argv[0]);
+			return -1;
+		}
 	}
 
 	return 0;
@@ -129,7 +218,9 @@ void end_handler(int sig)
 
 int mach_init()
 {
+#ifdef DLOG_PRINT	
 	system("rm -f "TMP_LOG);
+#endif
 	return 0;
 }
 

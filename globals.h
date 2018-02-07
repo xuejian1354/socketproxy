@@ -1,7 +1,5 @@
-/* globals.h
- *
- * Sam Chen <xuejian1354@163.com>
- *
+/*
+ * globals.h
  */
 #ifndef __GLOBALS_H__
 #define __GLOBALS_H__
@@ -19,14 +17,18 @@ extern "C" {
 #endif
 
 #define MAXSIZE	8192
-#define DEFAULT_TRANSPORT	2080
-#define SERVER_TCPLINK_NUM	100
+#define DEFAULT_TRANSPORT	1080
+#define SERVER_TCPLINK_NUM	200
+#define DEFAULT_MACDEV	"eth0"
+
+int istest();
 
 void set_end(int end);
 int get_end();
 char *get_host_addr();
 int get_host_port();
 int get_transport();
+int get_max_connections_num();
 
 int start_params(int argc, char **argv);
 
