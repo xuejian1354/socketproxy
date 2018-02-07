@@ -174,35 +174,35 @@ int net_tcp_recv(int fd)
 	   	{
 			int isreconnect = 0;
 			ext_conn_t *extdata = (ext_conn_t *)(t_conn->extdata);
-			if(extdata)
-			{
-				tcp_conn_t *toconn = extdata->toconn;
-				if(extdata->way == CONN_WITH_SERVER && toconn && toconn->isconnect)
-				{
+
+			tcp_conn_t *toconn = extdata->toconn;
+			if(toconn && toconn->isconnect)
+			{	if(extdata->way == CONN_WITH_SERVER)
 					AO_PRINTF("[%s] line:%d to target\n", get_current_time(), __LINE__);
-					release_connection_with_fd(toconn->fd);
-					AO_PRINTF("[%s] line:%d to server\n", get_current_time(), __LINE__);
-				}
 				else
 				{
-					if(extdata->way == CONN_WITH_SERVER)
-					{
-						AO_PRINTF("[%s] line:%d to server\n", get_current_time(), __LINE__);
-					}
-					else
-					{
-						AO_PRINTF("[%s] line:%d to target\n", get_current_time(), __LINE__);
-					}
-					toconn = NULL;
-				}
-
-				if(extdata->way == CONN_WITH_SERVER)
-				{
 					serlink_count--;
-					if(extdata->isuse)
+					if(((ext_conn_t *)(toconn->extdata))->isuse)
 						isreconnect = 1;
+					AO_PRINTF("[%s] line:%d to server\n", get_current_time(), __LINE__);
 				}
+				release_connection_with_fd(toconn->fd);
 			}
+			else
+			{
+				toconn = NULL;
+			}
+
+			if(extdata->way == CONN_WITH_SERVER)
+			{
+				serlink_count--;
+				if(extdata->isuse)
+					isreconnect = 1;
+
+				AO_PRINTF("[%s] line:%d to server\n", get_current_time(), __LINE__);
+			}
+			else
+				AO_PRINTF("[%s] line:%d to target\n", get_current_time(), __LINE__);
 
 			release_connection_with_fd(fd);
 			if(isreconnect)
