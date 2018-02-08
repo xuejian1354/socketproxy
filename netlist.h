@@ -39,5 +39,5 @@ int addto_tcpconn_list(tcp_conn_t *list);
 tcp_conn_t *queryfrom_tcpconn_list(int fd);
 tcp_conn_t *queryfrom_tcpconn_list_with_localport(int port);
 int delfrom_tcpconn_list(int fd);
-void clear_all_conn(void (*del_call)(int));
+void clear_all_conn(void (*del_call)(tcp_conn_t *));
 #endif  // __NETLIST_H__

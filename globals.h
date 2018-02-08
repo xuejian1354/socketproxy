@@ -22,6 +22,8 @@ extern "C" {
 #define DEFAULT_MACDEV	"eth0"
 
 int istest();
+int isdaemon();
+
 
 void set_end(int end);
 int get_end();

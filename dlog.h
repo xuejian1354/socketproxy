@@ -46,7 +46,9 @@ st(    \
 
 #define AT_PRINTF(format, args...)	   \
 st(	\
-	printf(format, ##args);	\
+	if(!isdaemon()) {	\
+		printf(format, ##args);    \
+	}	\
 )
 #endif
 

@@ -17,6 +17,7 @@ struct timespec local_time;
 int serlink_count = 0;
 
 int before_channel;
+int iswork = 0;
 
 void data_handler(int fd, char *data, int len);
 
@@ -81,11 +82,23 @@ void close_connection(int fd)
 	select_clr(fd);
 }
 
+void close_connection_from_list(tcp_conn_t *tconn)
+{
+	if(tconn)
+	{
+		if(tconn->isconnect)
+		{
+			close(tconn->fd);
+		}
+		select_clr(tconn->fd);
+	}
+}
+
 void detect_link()
 {
-	if(serlink_count <= 10)
+	if(iswork && serlink_count <= 10)
 	{
-		clear_all_conn(close_connection);
+		//clear_all_conn(close_connection_from_list);
 		set_timespec(get_rand(1200, 2400));
 	}
 	else if(serlink_count < get_max_connections_num())
@@ -94,6 +107,7 @@ void detect_link()
 	}
 	else
 	{
+		iswork = 1;
 		set_timespec(0);
 	}
 }
@@ -294,6 +308,7 @@ int net_tcp_recv(int fd)
 
 void time_handler()
 {
+	AO_PRINTF("[%s] time handle, %d\n", get_current_time(), get_timespec()->tv_sec);
 	if(serlink_count < get_max_connections_num())
 	{
 		int i = get_max_connections_num() - serlink_count;
@@ -301,10 +316,6 @@ void time_handler()
 		{
 			try_connect(get_host_addr(), get_host_port(), CONN_WITH_SERVER);
 		}
-	}
-	else if(serlink_count <= 10)
-	{
-		net_tcp_connect(get_host_addr(), get_host_port());
 	}
 }
 

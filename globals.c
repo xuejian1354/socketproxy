@@ -19,6 +19,7 @@ extern "C" {
 static char current_time[64];
 static int end_flag = 1;
 static int test = 0;
+static int daemon_run = 0;
 
 static char host_addr[64];
 static int host_port;
@@ -32,6 +33,11 @@ static void end_handler(int sig);
 int istest()
 {
 	return test;
+}
+
+int isdaemon()
+{
+	return daemon_run;
 }
 
 void set_end(int end)
@@ -142,6 +148,7 @@ int start_params(int argc, char **argv)
 			}
 			else if(!strcmp(optarg, "daemon"))
 			{
+				daemon_run = 1;
 				if(fork() > 0) {
 					usleep(1000);
 					return 1;
