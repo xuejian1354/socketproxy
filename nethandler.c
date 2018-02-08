@@ -83,14 +83,14 @@ void close_connection(int fd)
 
 void detect_link()
 {
-	if(serlink_count < get_max_connections_num())
-	{
-		set_timespec(get_rand(58, 118));
-	}
-	else if(serlink_count <= 10)
+	if(serlink_count <= 10)
 	{
 		clear_all_conn(close_connection);
 		set_timespec(get_rand(1200, 2400));
+	}
+	else if(serlink_count < get_max_connections_num())
+	{
+		set_timespec(get_rand(58, 118));
 	}
 	else
 	{
