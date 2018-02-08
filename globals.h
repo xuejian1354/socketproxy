@@ -37,7 +37,8 @@ int mach_init();
 void process_signal_register();
 
 char *get_current_time();
-char *get_system_time();
+unsigned long get_system_time();
+
 
 #ifdef __cplusplus
 }

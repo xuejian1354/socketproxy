@@ -21,6 +21,7 @@ st(    \
 )
 
 #define AO_PRINTF AI_PRINTF
+#define AT_PRINTF AI_PRINTF
 
 #else
 #define AO_PRINTF(format, args...)  \
@@ -41,6 +42,11 @@ st(    \
 		printf(format, ##args);    \
 	}	\
 	AO_PRINTF(format, ##args);	\
+)
+
+#define AT_PRINTF(format, args...)	   \
+st(	\
+	printf(format, ##args);	\
 )
 #endif
 

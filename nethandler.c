@@ -9,18 +9,20 @@
 
 static int nbytes;
 static char buf[MAXSIZE];
+static char rate_print[64];
 
 struct timespec *select_time = NULL;
 struct timespec local_time;
 
 int serlink_count = 0;
 
+int before_channel;
+
 void data_handler(int fd, char *data, int len);
 
 int get_rand(int min, int max) {
 	return (rand() % (max-min+1)) + min;
 }
-
 
 void set_timespec(time_t s)
 {
@@ -39,6 +41,38 @@ void set_timespec(time_t s)
 struct timespec *get_timespec()
 {
 	return select_time;
+}
+
+char *get_rate_print(uint32 rate)
+{
+	bzero(rate_print, sizeof(rate_print));
+	if(rate < 1024)
+	{
+		sprintf(rate_print, "%u B/s", rate);
+	}
+	else if(rate < 1024*1024)
+	{
+		sprintf(rate_print, "%.1f KB/s", (float)(rate*10/1024)/10);
+	}
+	else if(rate < 1024*1024*1024)
+	{
+		sprintf(rate_print, "%.2f MB/s", (float)(rate*100/(1024*1024))/100);
+	}
+	else
+	{
+		sprintf(rate_print, "%u.2f G/s", (float)(rate*100/(1024*1024*1024))/100);
+	}
+
+	return rate_print;
+}
+
+void send_with_rate_callback(int fd, char *data, int len, 
+	tcp_conn_t *src_conn, tcp_conn_t *dst_conn,
+	void(*rate_call)(float, tcp_conn_t *, tcp_conn_t *))
+{
+	unsigned long sbtime = get_system_time();
+	send(fd, data, len, 0);
+	rate_call(((float)len*1000)/(get_system_time()-sbtime), src_conn, dst_conn);
 }
 
 void close_connection(int fd)
@@ -274,29 +308,55 @@ void time_handler()
 	}
 }
 
+void send_to_stream_call(float rate, tcp_conn_t *src_conn, tcp_conn_t *dst_conn)
+{
+	((ext_conn_t *)src_conn->extdata)->isuse = 1;
+
+	if(before_channel == src_conn->fd)
+	{
+		AT_PRINTF("\033[1A");
+	}
+
+	AT_PRINTF("[%s] %s:%d ==> %s:%d, fd=%d, %s\n",
+		get_current_time(), src_conn->host_addr, src_conn->host_port,
+		dst_conn->host_addr, dst_conn->host_port, src_conn->fd, get_rate_print(rate));
+
+	before_channel = src_conn->fd;
+}
+
+void send_back_stream_call(float rate, tcp_conn_t *src_conn, tcp_conn_t *dst_conn)
+{
+	((ext_conn_t *)dst_conn->extdata)->isuse = 1;
+
+	if(before_channel == src_conn->fd)
+	{
+		AT_PRINTF("\033[1A");
+	}
+
+	AT_PRINTF("[%s] %s:%d <== %s:%d, fd=%d, %s\n",
+		get_current_time(), dst_conn->host_addr, dst_conn->host_port,
+		src_conn->host_addr, src_conn->host_port, src_conn->fd, get_rate_print(rate));
+
+	before_channel = src_conn->fd;
+}
+
 void data_handler(int fd, char *data, int len)
 {
 	tcp_conn_t *tconn = queryfrom_tcpconn_list(fd);
 	if(tconn)
 	{
-		if(((ext_conn_t *)(tconn->extdata))->toconn)
+		tcp_conn_t *toconn = ((ext_conn_t *)(tconn->extdata))->toconn;
+		if(toconn)
 		{
-			send(((ext_conn_t *)tconn->extdata)->toconn->fd, data, len, 0);
-			((ext_conn_t *)tconn->extdata)->isuse = 1;
 			if(((ext_conn_t *)(tconn->extdata))->way==CONN_WITH_SERVER)
 			{
-				AO_PRINTF("[%s] %s:%d ==> %s:%d, fd=%d\n", get_current_time(),
-					tconn->host_addr, tconn->host_port,
-					((ext_conn_t *)tconn->extdata)->toconn->host_addr,
-					((ext_conn_t *)tconn->extdata)->toconn->host_port,
-					tconn->fd);
+				send_with_rate_callback(toconn->fd, data, len, tconn, toconn,
+											send_to_stream_call);
 			}
 			else
 			{
-				AO_PRINTF("[%s] %s:%d <== %s:%d, fd=%d\n", get_current_time(),
-					((ext_conn_t *)tconn->extdata)->toconn->host_addr,
-					((ext_conn_t *)tconn->extdata)->toconn->host_port,
-					tconn->host_addr, tconn->host_port, tconn->fd);
+				send_with_rate_callback(toconn->fd, data, len, tconn, toconn,
+											send_back_stream_call);
 			}
 		}
 		else if(((ext_conn_t *)(tconn->extdata))->way == CONN_WITH_SERVER)
@@ -307,15 +367,9 @@ void data_handler(int fd, char *data, int len)
 			{
 				((ext_conn_t *)(tconn->extdata))->toconn = cliconn;
 				((ext_conn_t *)(cliconn->extdata))->toconn = tconn;
-				send(cliconn->fd, data, len, 0);
-				((ext_conn_t *)tconn->extdata)->isuse = 1;
-				AO_PRINTF("[%s] %s:%d ==> %s:%d, fd=%d\n",
-					get_current_time(),
-					tconn->host_addr,
-					tconn->host_port,
-					cliconn->host_addr,
-					cliconn->host_port, 
-					tconn->fd);
+
+				send_with_rate_callback(cliconn->fd, data, len, tconn, cliconn,
+											send_to_stream_call);
 			}
 		}
 	}

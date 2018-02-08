@@ -235,14 +235,11 @@ char *get_current_time()
 	return current_time;
 }
 
-char *get_system_time()
+unsigned long get_system_time()
 {
-	struct timeval time;
-	gettimeofday(&time, NULL);
-	bzero(current_time, sizeof(current_time));
-	sprintf(current_time, "%u", (uint32)time.tv_sec);
-
-	return current_time;
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	return tv.tv_sec*1000*1000 + tv.tv_usec;
 }
 
 #ifdef __cplusplus
