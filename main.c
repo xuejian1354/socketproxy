@@ -41,7 +41,7 @@ int main(int argc, char **argv)
 			//usleep(1000);
 			set_end(0);
 		}
-		//usleep(100);
+		//usleep(1000);
 	}
 
 	AI_PRINTF("[%s] %s exit, %d\n", get_current_time(), TARGET_NAME, getpid());

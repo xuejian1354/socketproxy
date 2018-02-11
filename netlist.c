@@ -3,6 +3,7 @@
  */
 
 #include "netlist.h"
+#include "globals.h"
 
 static tcp_conn_list_t tcp_conn_list = {
 	NULL,

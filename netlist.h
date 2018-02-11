@@ -4,7 +4,7 @@
 #ifndef __NETLIST_H__
 #define __NETLIST_H__
 
-#include "globals.h"
+#include "mtypes.h"
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>

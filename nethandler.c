@@ -19,8 +19,6 @@ int serlink_count = 0;
 int before_channel;
 int iswork = 0;
 
-void data_handler(int fd, char *data, int len);
-
 int get_rand(int min, int max) {
 	return (rand() % (max-min+1)) + min;
 }
@@ -207,6 +205,39 @@ int net_tcp_connect(char *host, int port)
 	return 0;
 }
 
+void send_to_stream_call(float rate, tcp_conn_t *src_conn, tcp_conn_t *dst_conn)
+{
+	((ext_conn_t *)src_conn->extdata)->isuse = 1;
+
+	if(before_channel == src_conn->fd)
+	{
+		AT_PRINTF("\033[1A");
+	}
+
+	AT_PRINTF("[%s] %s:%d ==> %s:%d, fd=%d, %s\n",
+		get_current_time(), src_conn->host_addr, src_conn->host_port,
+		dst_conn->host_addr, dst_conn->host_port, src_conn->fd, get_rate_print(rate));
+
+	before_channel = src_conn->fd;
+}
+
+void send_back_stream_call(float rate, tcp_conn_t *src_conn, tcp_conn_t *dst_conn)
+{
+	((ext_conn_t *)dst_conn->extdata)->isuse = 1;
+
+	if(before_channel == src_conn->fd)
+	{
+		AT_PRINTF("\033[1A");
+	}
+
+	AT_PRINTF("[%s] %s:%d <== %s:%d, fd=%d, %s\n",
+		get_current_time(), dst_conn->host_addr, dst_conn->host_port,
+		src_conn->host_addr, src_conn->host_port, src_conn->fd, get_rate_print(rate));
+
+	before_channel = src_conn->fd;
+}
+
+
 int net_tcp_recv(int fd)
 {
 	tcp_conn_t *t_conn = queryfrom_tcpconn_list(fd);
@@ -217,7 +248,6 @@ int net_tcp_recv(int fd)
 
 	if(t_conn->isconnect)
 	{
-		memset(buf, 0, sizeof(buf));
 	   	if ((nbytes = recv(fd, buf, sizeof(buf), 0)) <= 0)
 	   	{
 			int isreconnect = 0;
@@ -261,7 +291,33 @@ int net_tcp_recv(int fd)
 		else
 		{
 			//PRINT_HEX(buf, nbytes);
-			data_handler(fd, buf, nbytes);
+			tcp_conn_t *toconn = ((ext_conn_t *)(t_conn->extdata))->toconn;
+			if(toconn)
+			{
+				if(((ext_conn_t *)(t_conn->extdata))->way==CONN_WITH_SERVER)
+				{
+					send_with_rate_callback(toconn->fd, buf, nbytes, t_conn, toconn,
+												send_to_stream_call);
+				}
+				else
+				{
+					send_with_rate_callback(toconn->fd, buf, nbytes, t_conn, toconn,
+												send_back_stream_call);
+				}
+			}
+			else if(((ext_conn_t *)(t_conn->extdata))->way == CONN_WITH_SERVER)
+			{
+				tcp_conn_t *cliconn = 
+					try_connect("127.0.0.1", get_transport(), CONN_WITH_CLIENT);
+				if(cliconn)
+				{
+					((ext_conn_t *)(t_conn->extdata))->toconn = cliconn;
+					((ext_conn_t *)(cliconn->extdata))->toconn = t_conn;
+
+					send_with_rate_callback(cliconn->fd, buf, nbytes, t_conn, cliconn,
+												send_to_stream_call);
+				}
+			}
 		}
 	}
 	else
@@ -316,78 +372,6 @@ void time_handler()
 		{
 			try_connect(get_host_addr(), get_host_port(), CONN_WITH_SERVER);
 		}
-	}
-}
-
-void send_to_stream_call(float rate, tcp_conn_t *src_conn, tcp_conn_t *dst_conn)
-{
-	((ext_conn_t *)src_conn->extdata)->isuse = 1;
-
-	if(before_channel == src_conn->fd)
-	{
-		AT_PRINTF("\033[1A");
-	}
-
-	AT_PRINTF("[%s] %s:%d ==> %s:%d, fd=%d, %s\n",
-		get_current_time(), src_conn->host_addr, src_conn->host_port,
-		dst_conn->host_addr, dst_conn->host_port, src_conn->fd, get_rate_print(rate));
-
-	before_channel = src_conn->fd;
-}
-
-void send_back_stream_call(float rate, tcp_conn_t *src_conn, tcp_conn_t *dst_conn)
-{
-	((ext_conn_t *)dst_conn->extdata)->isuse = 1;
-
-	if(before_channel == src_conn->fd)
-	{
-		AT_PRINTF("\033[1A");
-	}
-
-	AT_PRINTF("[%s] %s:%d <== %s:%d, fd=%d, %s\n",
-		get_current_time(), dst_conn->host_addr, dst_conn->host_port,
-		src_conn->host_addr, src_conn->host_port, src_conn->fd, get_rate_print(rate));
-
-	before_channel = src_conn->fd;
-}
-
-void data_handler(int fd, char *data, int len)
-{
-	tcp_conn_t *tconn = queryfrom_tcpconn_list(fd);
-	if(tconn)
-	{
-		tcp_conn_t *toconn = ((ext_conn_t *)(tconn->extdata))->toconn;
-		if(toconn)
-		{
-			if(((ext_conn_t *)(tconn->extdata))->way==CONN_WITH_SERVER)
-			{
-				send_with_rate_callback(toconn->fd, data, len, tconn, toconn,
-											send_to_stream_call);
-			}
-			else
-			{
-				send_with_rate_callback(toconn->fd, data, len, tconn, toconn,
-											send_back_stream_call);
-			}
-		}
-		else if(((ext_conn_t *)(tconn->extdata))->way == CONN_WITH_SERVER)
-		{
-			tcp_conn_t *cliconn = 
-				try_connect("127.0.0.1", get_transport(), CONN_WITH_CLIENT);
-			if(cliconn)
-			{
-				((ext_conn_t *)(tconn->extdata))->toconn = cliconn;
-				((ext_conn_t *)(cliconn->extdata))->toconn = tconn;
-
-				send_with_rate_callback(cliconn->fd, data, len, tconn, cliconn,
-											send_to_stream_call);
-			}
-		}
-	}
-	else
-	{
-		AO_PRINTF("[%s] can't find connection from list, fd=%d\n",
-			get_current_time(), fd);
 	}
 }
 

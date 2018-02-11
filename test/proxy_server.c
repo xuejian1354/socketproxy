@@ -1,56 +1,61 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <errno.h>
-#include <string.h>
-#include <netdb.h>
+#include "globals.h"
+#include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
 #include <arpa/inet.h>
-#include <ctype.h>
+#include <netdb.h>
+#include <errno.h>
 
-#define MAX_LINE 1024
 
-void main(int argc, char **argv)
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+int lcfd, lgfd;
+int client_port, gateway_port;
+
+int main(int argc, char **argv)
 {
-	int  lcfd, lgfd;
-	int cfd;
-	int sfd;
-	int rdy;
+	int ch;
+	int isget = 0;
+	opterr = 0;
 
-	struct sockaddr_in scin, sgin;
-	struct sockaddr_in cin;
+	const char *optstrs = "c:g:h";
+    while((ch = getopt(argc, argv, optstrs)) != -1)
+    {
+		switch(ch)
+		{
+		case 'h':
+			AI_PRINTF("Usage: %s -c <client port> -g <gateway port>\n", argv[0]);
+			return 1;
 
-	int client[FD_SETSIZE];
-	int gateway[FD_SETSIZE];
 
-	int maxi;
-	int maxfd;
+		case 'c':
+			isget++;
+			client_port = atoi(optarg);
+			break;
 
-	fd_set rset;
-	fd_set allset;
-	socklen_t addr_len;
-
-	char buffer[MAX_LINE];
-	int i;
-	int n;
-	int len;
-	int opt = 1;
-	char addr_p[20];
-
-	int cli_fi = 0;
-	int gw_fi = 0;
-
-	int client_port = 8180;
-	int gw_port = 8181;
-	if(argc > 2)
-	{
-		client_port = atoi(argv[1]);
-		gw_port = atoi(argv[2]);
+		case 'g':
+			isget++;
+			gateway_port = atoi(optarg);
+			break;
+		}
 	}
 
-	bzero(&scin,sizeof(struct sockaddr_in));
+	if(isget < 2)
+	{
+		AI_PRINTF("Unrecognize arguments.\n");
+		AI_PRINTF("\'%s -h\' get more help infomations.\n", argv[0]);
+		return -1;
+	}
+
+	process_signal_register();
+
+	AI_PRINTF("[%s] %s start, getpid=%d\n", get_current_time(), argv[0], getpid());
+
+	int opt = 1;
+	struct sockaddr_in scin, sgin;
+	bzero(&scin, sizeof(struct sockaddr_in));
 	scin.sin_family=AF_INET;
 	scin.sin_addr.s_addr=htonl(INADDR_ANY);
 	scin.sin_port=htons(client_port);
@@ -58,13 +63,13 @@ void main(int argc, char **argv)
 	bzero(&sgin,sizeof(struct sockaddr_in));
 	sgin.sin_family=AF_INET;
 	sgin.sin_addr.s_addr=htonl(INADDR_ANY);
-	sgin.sin_port=htons(gw_port);
+	sgin.sin_port=htons(gateway_port);
 
-	if((lcfd=socket(AF_INET,SOCK_STREAM,0))==-1
-		|| (lgfd=socket(AF_INET,SOCK_STREAM,0))==-1)
+	if((lcfd=socket(AF_INET, SOCK_STREAM, 0))==-1
+		|| (lgfd=socket(AF_INET, SOCK_STREAM, 0))==-1)
 	{
-		fprintf(stderr,"Socket error:%s\n\a",strerror(errno));
-		return;
+		 fprintf(stderr, "Socket error:%s\n\a", strerror(errno));
+		 return -1;
 	}
 
 	setsockopt(lcfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -74,251 +79,169 @@ void main(int argc, char **argv)
 		|| bind(lgfd,(struct sockaddr *)(&sgin),sizeof(struct sockaddr))==-1)
 	{
 		fprintf(stderr,"Bind error:%s\n\a",strerror(errno));
-		return;
+		return -1;
 	}
 
-	if(listen(lcfd,20)==-1 || listen(lgfd,20)==-1)
+	if(listen(lcfd, 5)==-1 || listen(lgfd, 5)==-1)
 	{
 		fprintf(stderr,"Listen error:%s\n\a",strerror(errno));
-		return;
+		return -1;
 	}
 
 	printf("Accepting connections, listen client %d, gw %d .......\n",
-		client_port, gw_port);
+			client_port, gateway_port);
 
-	maxfd = lcfd>lgfd?lcfd:lgfd;
-	maxi = -1;
-
-	for(i = 0;i < FD_SETSIZE;i++)
+	if (select_init() < 0)
 	{
-		client[i] = -1;
-		gateway[i] = -1;
+		return 1;
 	}
 
-	FD_ZERO(&allset);
-	FD_SET(lcfd,&allset);
-	FD_SET(lgfd,&allset);
+	select_set(lcfd);
+	select_set(lgfd);
 
-	while(1)
+	while(get_end())
 	{
-		rset = allset;
-		rdy = select(maxfd + 1, &rset, NULL, NULL, NULL);
-		if(FD_ISSET(lcfd, &rset))
+		if(select_listen() < 0)
 		{
-			addr_len = sizeof(cin);
-			if((cfd=accept(lcfd,(struct sockaddr *)(&cin),&addr_len))==-1)
-			{
-				fprintf(stderr,"Accept error:%s\n\a",strerror(errno));
-				return;
-			}
-			printf("New client connection, fd=%d\n", cfd);
-
-			for(i = 0; i<FD_SETSIZE; i++)
-			{
-				if(client[i] <= 0)
-				{
-					client[i] = cfd;
-					break;
-				}
-			}
-
-			if(i == FD_SETSIZE)
-			{
-				printf("too many clients\n");
-				return;
-			}
-
-			FD_SET(cfd, &allset);
-
-			if(cfd > maxfd)
-			{
-				maxfd = cfd;
-			}
-
-			if(i > maxi)
-			{
-				maxi = i;
-			}
-
-			if(--rdy <= 0)
-			{
-				continue;
-			}
+			set_end(0);
 		}
-
-		if(FD_ISSET(lgfd, &rset))
-		{
-			addr_len = sizeof(cin);
-			if((cfd=accept(lgfd,(struct sockaddr *)(&cin),&addr_len))==-1)
-			{
-				fprintf(stderr,"Accept error:%s\n\a",strerror(errno));
-				return;
-			}
-			printf("New gateway connection, fd=%d\n", cfd);
-
-			for(i = 0; i<FD_SETSIZE; i++)
-			{
-				if(gateway[i] <= 0)
-				{
-					gateway[i] = cfd;
-					break;
-				}
-			}
-
-			if(i == FD_SETSIZE)
-			{
-				printf("too many clients\n");
-				return;
-			}
-
-			FD_SET(cfd, &allset);
-
-			if(cfd > maxfd)
-			{
-				maxfd = cfd;
-			}
-
-			if(i > maxi)
-			{
-				maxi = i;
-			}
-
-			if(--rdy <= 0)
-			{
-				continue;
-			}
-		}
-
-		for(i = 0;i< FD_SETSIZE;i++)
-		{
-			if((sfd = client[i]) < 0)
-			{
-				continue;
-			}
-
-			if(FD_ISSET(sfd, &rset))
-			{
-				n = read(sfd,buffer,MAX_LINE);
-				if(n == 0)
-				{
-					printf("the other side has been closed. \n");
-					fflush(stdout);
-					close(sfd);
-					FD_CLR(sfd, &allset);
-					client[i] = -1;
-				}
-				else
-				{
-					int issend = 0;
-					for(i = gw_fi; i<FD_SETSIZE; i++)
-					{
-						if(gateway[i] > 0)
-						{
-							write(gateway[i], buffer, n);
-							issend = 1;
-							break;
-						}
-					}
-
-					if(!issend)
-					{
-						for(i = 0; i<gw_fi; i++)
-						{
-							if(gateway[i] > 0)
-							{
-								write(gateway[i], buffer, n);
-								issend = 1;
-								break;
-							}
-						}
-					}
-
-					if(issend)
-					{
-						if(i <FD_SETSIZE)
-						{
-							gw_fi = i;
-						}
-						else
-						{
-							gw_fi = 0;
-						}
-					}
-				}
-
-				if(--rdy <= 0)
-				{
-					break;
-				}
-			}
-		}
-
-		for(i = 0;i< FD_SETSIZE;i++)
-		{
-			if((sfd = gateway[i]) < 0)
-			{
-				continue;
-			}
-
-			if(FD_ISSET(sfd, &rset))
-			{
-				n = read(sfd,buffer,MAX_LINE);
-				if(n == 0)
-				{
-					printf("the other side has been closed. \n");
-					fflush(stdout);
-					close(sfd);
-					FD_CLR(sfd, &allset);
-					gateway[i] = -1;
-				}
-				else
-				{
-					int issend = 0;
-					for(i = cli_fi; i<FD_SETSIZE; i++)
-					{
-						if(client[i] > 0)
-						{
-							write(client[i], buffer, n);
-							issend = 1;
-							break;
-						}
-					}
-
-					if(!issend)
-					{
-						for(i = 0; i<cli_fi; i++)
-						{
-							if(client[i] > 0)
-							{
-								write(client[i], buffer, n);
-								issend = 1;
-								break;
-							}
-						}
-					}
-
-					if(issend)
-					{
-						if(i <FD_SETSIZE)
-						{
-							cli_fi = i;
-						}
-						else
-						{
-							cli_fi = 0;
-						}
-					}
-				}
-
-				if(--rdy <= 0)
-				{
-					break;
-				}
-			}
-		}
+		usleep(100);
 	}
 
-	close(lcfd);
-	close(lgfd);
+	AI_PRINTF("[%s] %s exit, %d\n", get_current_time(), argv[0], getpid());
+	return 0;
 }
+
+int net_tcp_recv(int fd)
+{
+	if(fd == lcfd)
+	{
+		int cfd;
+		struct sockaddr_in cin;
+		int addr_len = sizeof(cin);
+		if((cfd=accept(lcfd, (struct sockaddr *)(&cin), &addr_len))==-1)
+		{
+			fprintf(stderr,"Accept error:%s\n\a",strerror(errno));
+			return;
+		}
+		printf("New client connection, fd=%d\n", cfd);
+
+		ext_conn_t *extdata = calloc(1, sizeof(ext_conn_t));
+		extdata->toconn = NULL;
+		extdata->way = CONN_WITH_CLIENT;
+		extdata->isuse = 0;
+		tcp_conn_t *tconn =
+			new_tcpconn(cfd, 1, cin.sin_port, "0.0.0.0", client_port, extdata);
+		if(tconn == NULL)
+		{
+			free(extdata);
+			return 1;
+		}
+
+		addto_tcpconn_list(tconn);
+		select_set(cfd);
+	}
+	else if(fd == lgfd)
+	{
+		int gfd;
+		struct sockaddr_in cin;
+		int addr_len = sizeof(cin);
+		if((gfd=accept(lgfd, (struct sockaddr *)(&cin), &addr_len))==-1)
+		{
+			fprintf(stderr,"Accept error:%s\n\a",strerror(errno));
+			return;
+		}
+		printf("New gateway connection, fd=%d\n", gfd);
+
+		ext_conn_t *extdata = calloc(1, sizeof(ext_conn_t));
+		extdata->toconn = NULL;
+		extdata->way = CONN_WITH_SERVER;	//means gateway
+		extdata->isuse = 0;
+		tcp_conn_t *tconn =
+			new_tcpconn(gfd, 1, cin.sin_port, "0.0.0.0", gateway_port, extdata);
+		if(tconn == NULL)
+		{
+			free(extdata);
+			return 1;
+		}
+
+		addto_tcpconn_list(tconn);
+		select_set(gfd);
+	}
+	else
+	{
+		tcp_conn_t *tconn = queryfrom_tcpconn_list(fd);
+		if(tconn)
+		{
+			ext_conn_t *extdata = tconn->extdata;
+			if(extdata->way == CONN_WITH_CLIENT)
+			{
+				if(!extdata->toconn)
+				{
+					tcp_conn_list_t *p_list = get_tcp_conn_list();
+					tcp_conn_t *t_list;
+					if(p_list->p_head != NULL)
+					{
+						ext_conn_t *todata;
+						for(t_list=p_list->p_head; t_list!=NULL; t_list=t_list->next)
+						{
+							todata = t_list->extdata;
+							if(todata->way == CONN_WITH_SERVER && !todata->isuse)
+							{
+								extdata->toconn = t_list;
+								todata->toconn = tconn;
+								todata->isuse = 1;
+								break;
+							}
+						}
+					}
+				}
+			}
+
+			int dlen;
+			char dbuf[MAXSIZE];
+			memset(dbuf, 0, sizeof(dbuf));
+		   	if ((dlen = recv(fd, dbuf, sizeof(dbuf), 0)) <= 0)
+		   	{
+				if(extdata->toconn)
+				{
+					int tfd = extdata->toconn->fd;
+					close(tfd);
+					select_clr(tfd);
+					delfrom_tcpconn_list(tfd);
+					printf("close, fd=%d\n", tfd);
+				}
+				close(fd);
+				select_clr(fd);
+				delfrom_tcpconn_list(fd);
+				printf("close, fd=%d\n", fd);
+				return 0;
+			}
+
+			if(extdata->toconn)
+			{
+				send(extdata->toconn->fd, dbuf, dlen, 0);
+			}
+			else
+			{
+				printf("line %d: no gateway link available\n", __LINE__);
+			}
+		}
+	}
+
+	return 0;
+}
+
+void time_handler()
+{
+}
+
+struct timespec *get_timespec()
+{
+	return NULL;
+}
+
+#ifdef __cplusplus
+}
+#endif
 

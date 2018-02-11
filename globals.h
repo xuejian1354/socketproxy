@@ -5,6 +5,7 @@
 #define __GLOBALS_H__
 
 #include "mtypes.h"
+#include "netlist.h"
 #include "dlog.h"
 #include <time.h>
 #include <signal.h>
@@ -15,6 +16,20 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+enum ConnWay
+{
+	CONN_WITH_SERVER = 0,
+	CONN_WITH_CLIENT
+};
+
+typedef struct ExtConnData
+{
+	tcp_conn_t *toconn;
+	enum ConnWay way;
+	int isuse;
+}ext_conn_t;
+
 
 #define MAXSIZE	8192
 #define DEFAULT_TRANSPORT	1080
