@@ -6,6 +6,10 @@ $(shell find -name "*.h" | xargs chmod -x)
 
 include $(TOPDIR)/config.mk
 
+CFLAGS+=-I.
+#LDFLAGS+=-static -L/home/sam/review/openwrt-tooltest/staging_dir/target-x86_64-redhat-linux/usr/lib -luv
+#LDFLAGS+=-static -L/home/sam/review/openwrt-tooltest/staging_dir/target-mips-unknown-linux-uclibc/usr/lib -luv
+
 TARGET_NAME:=skproxy
 TARGET:=$(addprefix $(DIR),$(TARGET_NAME))
 export TARGET
@@ -23,13 +27,13 @@ all:$(TARGET)
 
 $(TARGET):target_comshow $(TARGET_OBJS)
 	$(call echocmd,TAR,$@, \
-	  $(TARGET_CC) $(TARGET_DMACRO) -O2 -o $@ $(TARGET_OBJS))
+	  $(TARGET_CC) $(TARGET_DMACRO) -O2 -o $@ $(TARGET_OBJS) $(LDFLAGS))
 	@$(TARGET_STRIP) $@
 
 $(DIR)%.o:%.c $(ALL_HEARDS)
 	@if [ ! -d "$(dir $@)" ]; then mkdir -p $(dir $@); fi;
 	$(call echocmd,CC, $@, \
-	  $(TARGET_CC) $(TARGET_DMACRO) -O2 -o $@ -c $<)
+	  $(TARGET_CC) $(TARGET_DMACRO) -O2 -o $@ $(CFLAGS) -c $<)
 
 target_comshow:
 	@echo ===========================================================

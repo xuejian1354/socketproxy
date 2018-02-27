@@ -124,7 +124,8 @@ int net_tcp_recv(int fd)
 			fprintf(stderr,"Accept error:%s\n\a",strerror(errno));
 			return;
 		}
-		printf("New client connection, fd=%d\n", cfd);
+		printf("New client connection, fd=%d, %s:%u\n",
+					cfd, inet_ntoa(cin.sin_addr), ntohs(cin.sin_port));
 
 		ext_conn_t *extdata = calloc(1, sizeof(ext_conn_t));
 		extdata->toconn = NULL;
@@ -205,26 +206,44 @@ int net_tcp_recv(int fd)
 		   	{
 				if(extdata->toconn)
 				{
-					int tfd = extdata->toconn->fd;
-					close(tfd);
-					select_clr(tfd);
-					delfrom_tcpconn_list(tfd);
-					printf("close, fd=%d\n", tfd);
+					int tofd = extdata->toconn->fd;
+					close(tofd);
+					select_clr(tofd);
+					delfrom_tcpconn_list(tofd);
+					printf("%d: close, fd=%d\n", __LINE__, tofd);
 				}
+
 				close(fd);
 				select_clr(fd);
 				delfrom_tcpconn_list(fd);
-				printf("close, fd=%d\n", fd);
+				printf("%d: close, fd=%d\n", __LINE__, fd);
 				return 0;
 			}
 
 			if(extdata->toconn)
 			{
-				send(extdata->toconn->fd, dbuf, dlen, 0);
+				if(send(extdata->toconn->fd, dbuf, dlen, 0) < 0)
+				{
+					perror("send()");
+
+					int tofd = extdata->toconn->fd;
+					close(tofd);
+					select_clr(tofd);
+					delfrom_tcpconn_list(tofd);
+					printf("%d: close, fd=%d\n", __LINE__, tofd);
+
+					close(fd);
+					select_clr(fd);
+					delfrom_tcpconn_list(fd);
+					printf("%d: close, fd=%d\n", __LINE__, fd);
+				}
 			}
 			else
 			{
-				printf("line %d: no gateway link available\n", __LINE__);
+				close(fd);
+				select_clr(fd);
+				delfrom_tcpconn_list(fd);
+				printf("%d: close, fd=%d\n", __LINE__, fd);
 			}
 		}
 	}

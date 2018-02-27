@@ -1,6 +1,7 @@
 ifneq ($(WHOLE_BUILD),1)
 ifneq ("$(origin prefix)", "command line")
   prefix :=
+# prefix :=mips-unknown-linux-uclibc-
 endif
 
 ifneq ("$(origin dir)", "command line")

@@ -69,8 +69,29 @@ void send_with_rate_callback(int fd, char *data, int len,
 	tcp_conn_t *src_conn, tcp_conn_t *dst_conn,
 	void(*rate_call)(float, tcp_conn_t *, tcp_conn_t *))
 {
+	int st = 100;
 	unsigned long sbtime = get_system_time();
-	send(fd, data, len, 0);
+	while(send(fd, data, len, 0) < 0)
+	{
+		if(errno == EAGAIN)
+        {
+            usleep(st);
+			if(st < 1000) st += 100;
+			else if(st < 50000) st += 1000;
+			else st += 100000;
+
+            //printf("send() again: errno==EAGAIN\n");
+			continue;
+        }
+        else
+        {
+			char ebuf[128] = {0};
+            sprintf(ebuf, "send() ERROR errno=%d, strerror=%s", errno, strerror(errno));
+			perror(ebuf);
+            return;
+        }
+	}
+
 	rate_call(((float)len*1000)/(get_system_time()-sbtime), src_conn, dst_conn);
 }
 
@@ -294,7 +315,7 @@ int net_tcp_recv(int fd)
 			tcp_conn_t *toconn = ((ext_conn_t *)(t_conn->extdata))->toconn;
 			if(toconn)
 			{
-				if(((ext_conn_t *)(t_conn->extdata))->way==CONN_WITH_SERVER)
+				if(((ext_conn_t *)(t_conn->extdata))->way == CONN_WITH_SERVER)
 				{
 					send_with_rate_callback(toconn->fd, buf, nbytes, t_conn, toconn,
 												send_to_stream_call);
@@ -314,9 +335,26 @@ int net_tcp_recv(int fd)
 					((ext_conn_t *)(t_conn->extdata))->toconn = cliconn;
 					((ext_conn_t *)(cliconn->extdata))->toconn = t_conn;
 
+					fcntl(cliconn->fd, F_SETFL,
+						fcntl(cliconn->fd, F_GETFL, 0) | O_NONBLOCK);
+					int tlen;
+					char tbuf[MAXSIZE];
+					while ((tlen = recv(cliconn->fd, tbuf, sizeof(tbuf), 0)) > 0)
+					{
+						AO_PRINTF("[%s] Ignore data from frame\n", get_current_time());
+					}
+
 					send_with_rate_callback(cliconn->fd, buf, nbytes, t_conn, cliconn,
 												send_to_stream_call);
 				}
+				else
+				{
+					AO_PRINTF("[%s] connecting to client missing\n", get_current_time());
+				}
+			}
+			else
+			{
+				AO_PRINTF("[%s] No object to transfer data\n", get_current_time());
 			}
 		}
 	}

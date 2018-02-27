@@ -124,7 +124,7 @@ int start_params(int argc, char **argv)
 {
 	int ch;
 	int isget = 0;
-	opterr = 0; 
+	opterr = 0;
 
 	const char *optstrs = "c:p:e:m:d:t:h";
     while((ch = getopt(argc, argv, optstrs)) != -1)
@@ -204,6 +204,7 @@ void process_signal_register()
 {
 	 signal(SIGINT, end_handler);
 	 signal(SIGTSTP, end_handler);
+	 signal(SIGPIPE, SIG_IGN);	//send error
 }
 
 void end_handler(int sig)
