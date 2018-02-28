@@ -6,6 +6,10 @@
 #include "netlist.h"
 #include <errno.h>
 
+#ifdef GWLINK_WITH_SOCKS5_PASS
+const char socks5_frame[] = {0x05, 0x01, 0x02};
+char userpass_frame[256];
+#endif
 
 static int nbytes;
 static char buf[MAXSIZE];
@@ -105,10 +109,7 @@ void close_connection_from_list(tcp_conn_t *tconn)
 {
 	if(tconn)
 	{
-		if(tconn->isconnect)
-		{
-			close(tconn->fd);
-		}
+		close(tconn->fd);
 		select_clr(tconn->fd);
 	}
 }
@@ -156,6 +157,7 @@ uint32 get_socket_local_port(int fd)
 tcp_conn_t *try_connect(char *host, int port, enum ConnWay way)
 {
 	int fd;
+	tcp_conn_t *tconn;
 	if ((fd = socket(PF_INET, SOCK_STREAM, 0)) < 0)
 	{
 		perror("client tcp socket fail");
@@ -172,7 +174,15 @@ tcp_conn_t *try_connect(char *host, int port, enum ConnWay way)
 	extdata->toconn = NULL;
 	extdata->way = way;
 	extdata->isuse = 0;
-	tcp_conn_t *tconn = new_tcpconn(fd, 0, 0, host, port, extdata);
+	if(way != CONN_WITH_CLIENT)
+	{
+		tconn = new_tcpconn(fd, GWLINK_INIT, 0, host, port, extdata);
+	}
+	else
+	{
+		tconn = new_tcpconn(fd, GWLINK_START, 0, host, port, extdata);
+	}
+
 	if(tconn == NULL)
 	{
 		free(extdata);
@@ -189,15 +199,24 @@ tcp_conn_t *try_connect(char *host, int port, enum ConnWay way)
 
 	if(res == 0)
 	{
-		tconn->isconnect = 1;
 		tconn->port = get_socket_local_port(fd);
 		if(way != CONN_WITH_CLIENT)
 		{
 			serlink_count++;
 			detect_link();
+#ifdef GWLINK_WITH_SOCKS5_PASS
+			tconn->gwlink_status = GWLINK_AUTH;
+#else
+			tconn->gwlink_status = GWLINK_START;
+#endif
 		}
-		AO_PRINTF("[%s] connect %s:%d, current port=%d, fd=%d, total=%d\n",
-				get_current_time(), tconn->host_addr,
+		else
+		{
+			tconn->gwlink_status = GWLINK_START;
+		}
+
+		AO_PRINTF("[%s] line %d connect %s:%d, current port=%d, fd=%d, total=%d\n",
+				get_current_time(), __LINE__, tconn->host_addr,
 				tconn->host_port, tconn->port, fd, serlink_count);
 	}
 
@@ -267,7 +286,7 @@ int net_tcp_recv(int fd)
 		return 0;
 	}
 
-	if(t_conn->isconnect)
+	if(t_conn->gwlink_status > GWLINK_INIT)
 	{
 	   	if ((nbytes = recv(fd, buf, sizeof(buf), 0)) <= 0)
 	   	{
@@ -275,7 +294,7 @@ int net_tcp_recv(int fd)
 			ext_conn_t *extdata = (ext_conn_t *)(t_conn->extdata);
 
 			tcp_conn_t *toconn = extdata->toconn;
-			if(toconn && toconn->isconnect)
+			if(toconn && toconn->gwlink_status > GWLINK_INIT)
 			{	if(extdata->way == CONN_WITH_SERVER)
 					AO_PRINTF("[%s] line:%d to target\n", get_current_time(), __LINE__);
 				else
@@ -312,6 +331,67 @@ int net_tcp_recv(int fd)
 		else
 		{
 			//PRINT_HEX(buf, nbytes);
+#ifdef GWLINK_WITH_SOCKS5_PASS
+			if(t_conn->gwlink_status == GWLINK_AUTH)
+			{
+				if(nbytes >= 2 && buf[0] == 0x05 && buf[1] == 0x02)
+				{
+					memset(userpass_frame, 0, sizeof(userpass_frame));
+					userpass_frame[0] = 0x1;
+					userpass_frame[1] = strlen(get_auth_user());
+					memcpy(userpass_frame+2, get_auth_user(), userpass_frame[1]);
+					userpass_frame[2+userpass_frame[1]] = strlen(get_auth_pass());
+					memcpy(userpass_frame+3+userpass_frame[1],
+						get_auth_pass(), userpass_frame[2+userpass_frame[1]]);
+
+					while(send(fd, userpass_frame, strlen(userpass_frame), 0) < 0)
+					{
+						char ebuf[8] = {0};
+			            sprintf(ebuf, "%d", __LINE__+1);
+						perror(ebuf);
+
+						if(errno == EAGAIN)
+				        {
+				            usleep(100000);
+							continue;
+				        }
+				        else
+				        {
+				            return 0;;
+				        }
+					}
+
+					t_conn->gwlink_status = GWLINK_PASS;
+				}
+
+				return 0;
+			}
+			else if(t_conn->gwlink_status == GWLINK_PASS)
+			{
+				if(nbytes >= 2 && buf[0] == 0x01 && buf[1] == 0)
+				{
+					t_conn->gwlink_status = GWLINK_START;
+					AO_PRINTF("[%s] line %d: auth success, fd=%d\n", get_current_time(), __LINE__, t_conn->fd);
+				}
+				else if(nbytes >= 2 && buf[0] == 0x01 && buf[1] == 0x01)
+				{
+					t_conn->gwlink_status = GWLINK_AUTH;
+					AO_PRINTF("[%s] line %d: auth fail, fd=%d\n", get_current_time(), __LINE__, t_conn->fd);
+				}
+
+				if(nbytes > 2)
+				{
+					char tbuf[nbytes-2];
+					memcpy(tbuf, buf+2, nbytes-2);
+					memcpy(buf, tbuf, nbytes-2);
+					nbytes = nbytes - 2;
+				}
+				else
+				{
+					return 0;
+				}
+			}
+#endif
 			tcp_conn_t *toconn = ((ext_conn_t *)(t_conn->extdata))->toconn;
 			if(toconn)
 			{
@@ -335,14 +415,14 @@ int net_tcp_recv(int fd)
 					((ext_conn_t *)(t_conn->extdata))->toconn = cliconn;
 					((ext_conn_t *)(cliconn->extdata))->toconn = t_conn;
 
-					fcntl(cliconn->fd, F_SETFL,
+					/*fcntl(cliconn->fd, F_SETFL,
 						fcntl(cliconn->fd, F_GETFL, 0) | O_NONBLOCK);
 					int tlen;
 					char tbuf[MAXSIZE];
 					while ((tlen = recv(cliconn->fd, tbuf, sizeof(tbuf), 0)) > 0)
 					{
 						AO_PRINTF("[%s] Ignore data from frame\n", get_current_time());
-					}
+					}*/
 
 					send_with_rate_callback(cliconn->fd, buf, nbytes, t_conn, cliconn,
 												send_to_stream_call);
@@ -365,12 +445,34 @@ int net_tcp_recv(int fd)
 
         if (0 == getsockopt(fd, SOL_SOCKET, SO_ERROR, &errinfo, &errlen))    
         {
-			t_conn->isconnect = 1;
 			t_conn->port = get_socket_local_port(fd);
 			select_set(fd);
 
 			if(((ext_conn_t *)(t_conn->extdata))->way == CONN_WITH_SERVER)
 			{
+#ifdef GWLINK_WITH_SOCKS5_PASS
+				t_conn->gwlink_status = GWLINK_AUTH;
+
+				while(send(fd, socks5_frame, sizeof(socks5_frame), 0) < 0)
+				{
+					char ebuf[8] = {0};
+		            sprintf(ebuf, "%d", __LINE__+1);
+					perror(ebuf);
+
+					if(errno == EAGAIN)
+			        {
+			            usleep(100000);
+						continue;
+			        }
+			        else
+			        {
+						t_conn->gwlink_status = GWLINK_INIT;
+			            break;
+			        }
+				}
+#else
+				t_conn->gwlink_status = GWLINK_START;
+#endif
 				serlink_count++;
 				detect_link();
 			}
@@ -381,6 +483,7 @@ int net_tcp_recv(int fd)
 
 			if(((ext_conn_t *)(t_conn->extdata))->way == CONN_WITH_CLIENT)
 			{
+				t_conn->gwlink_status = GWLINK_START;
 				if(((ext_conn_t *)(t_conn->extdata))->toconn == NULL)
 				{
 					AO_PRINTF("[%s] line:%d to target\n", get_current_time(), __LINE__);

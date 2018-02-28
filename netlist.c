@@ -16,7 +16,7 @@ tcp_conn_list_t *get_tcp_conn_list()
 	return &tcp_conn_list;
 }
 
-tcp_conn_t *new_tcpconn(int fd, int isconnect, 
+tcp_conn_t *new_tcpconn(int fd, gwlink_status_e status, 
 	int port, char *host_addr, int host_port, void *extdata)
 {
 	struct hostent *nlp_host;
@@ -27,7 +27,7 @@ tcp_conn_t *new_tcpconn(int fd, int isconnect,
 
 	tcp_conn_t *tconn = calloc(1, sizeof(tcp_conn_t));
 	tconn->fd = fd;
-	tconn->isconnect = isconnect;
+	tconn->gwlink_status = status;
 	tconn->port = port;
 	strcpy(tconn->host_addr, host_addr);
 	tconn->host_port = host_port;

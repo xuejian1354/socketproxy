@@ -13,6 +13,8 @@
 #include <sys/time.h>
 #include <sys/stat.h>
 
+#define GWLINK_WITH_SOCKS5_PASS
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -32,6 +34,8 @@ typedef struct ExtConnData
 
 
 #define MAXSIZE	8192
+#define DEFAULT_USER	"admin"
+#define DEFAULT_PASS	"admin"
 #define DEFAULT_TRANSPORT	1080
 #define SERVER_TCPLINK_NUM	200
 #define DEFAULT_MACDEV	"eth0"
@@ -45,6 +49,10 @@ int get_end();
 char *get_host_addr();
 int get_host_port();
 int get_transport();
+#ifdef GWLINK_WITH_SOCKS5_PASS
+char *get_auth_user();
+char *get_auth_pass();
+#endif
 int get_max_connections_num();
 
 int start_params(int argc, char **argv);

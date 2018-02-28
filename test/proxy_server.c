@@ -11,6 +11,9 @@
 extern "C" {
 #endif
 
+extern char auth_user[128];
+extern char auth_pass[128];
+
 int lcfd, lgfd;
 int client_port, gateway_port;
 
@@ -20,16 +23,40 @@ int main(int argc, char **argv)
 	int isget = 0;
 	opterr = 0;
 
-	const char *optstrs = "c:g:h";
+	const char *optstrs = "a:c:g:h";
     while((ch = getopt(argc, argv, optstrs)) != -1)
     {
 		switch(ch)
 		{
 		case 'h':
+#ifdef GWLINK_WITH_SOCKS5_PASS
+			AI_PRINTF("Usage: %s -c <client port> -g <gateway port> [-a user:pass]\n", argv[0]);
+			AI_PRINTF("Default\n");
+			AI_PRINTF("    user:pass   %s:%s\n", DEFAULT_USER, DEFAULT_PASS);
+#else
 			AI_PRINTF("Usage: %s -c <client port> -g <gateway port>\n", argv[0]);
+#endif
 			return 1;
-
-
+#ifdef GWLINK_WITH_SOCKS5_PASS
+		case 'a':
+			isget++;
+			{
+				int oalen = strlen(optarg);
+				int oapos = 0;
+				while(oapos < oalen)
+				{
+					if(*(optarg+oapos) == ':')
+					{
+						memset(auth_user, 0, sizeof(auth_user));
+						memcpy(auth_user, optarg, oapos);
+						memset(auth_pass, 0, sizeof(auth_pass));
+						memcpy(auth_pass, optarg+oapos+1, oalen-oapos);
+					}
+					oapos++;
+				}
+			}
+			break;
+#endif
 		case 'c':
 			isget++;
 			client_port = atoi(optarg);
@@ -72,8 +99,8 @@ int main(int argc, char **argv)
 		 return -1;
 	}
 
-	setsockopt(lcfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-	setsockopt(lgfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+	//setsockopt(lcfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+	//setsockopt(lgfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
 	if(bind(lcfd,(struct sockaddr *)(&scin),sizeof(struct sockaddr))==-1
 		|| bind(lgfd,(struct sockaddr *)(&sgin),sizeof(struct sockaddr))==-1)
@@ -132,7 +159,7 @@ int net_tcp_recv(int fd)
 		extdata->way = CONN_WITH_CLIENT;
 		extdata->isuse = 0;
 		tcp_conn_t *tconn =
-			new_tcpconn(cfd, 1, cin.sin_port, "0.0.0.0", client_port, extdata);
+			new_tcpconn(cfd, GWLINK_START, cin.sin_port, "0.0.0.0", client_port, extdata);
 		if(tconn == NULL)
 		{
 			free(extdata);
@@ -158,8 +185,13 @@ int net_tcp_recv(int fd)
 		extdata->toconn = NULL;
 		extdata->way = CONN_WITH_SERVER;	//means gateway
 		extdata->isuse = 0;
+#ifdef GWLINK_WITH_SOCKS5_PASS
 		tcp_conn_t *tconn =
-			new_tcpconn(gfd, 1, cin.sin_port, "0.0.0.0", gateway_port, extdata);
+			new_tcpconn(gfd, GWLINK_AUTH, cin.sin_port, "0.0.0.0", gateway_port, extdata);
+#else
+		tcp_conn_t *tconn =
+			new_tcpconn(gfd, GWLINK_START, cin.sin_port, "0.0.0.0", gateway_port, extdata);
+#endif
 		if(tconn == NULL)
 		{
 			free(extdata);
@@ -187,7 +219,9 @@ int net_tcp_recv(int fd)
 						for(t_list=p_list->p_head; t_list!=NULL; t_list=t_list->next)
 						{
 							todata = t_list->extdata;
-							if(todata->way == CONN_WITH_SERVER && !todata->isuse)
+							if(todata->way == CONN_WITH_SERVER
+								&& !todata->isuse
+								&& t_list->gwlink_status == GWLINK_START)
 							{
 								extdata->toconn = t_list;
 								todata->toconn = tconn;
@@ -219,7 +253,75 @@ int net_tcp_recv(int fd)
 				printf("%d: close, fd=%d\n", __LINE__, fd);
 				return 0;
 			}
+#ifdef GWLINK_WITH_SOCKS5_PASS
+			if(extdata->way == CONN_WITH_SERVER)
+			{
+				switch(tconn->gwlink_status)
+				{
+				case GWLINK_AUTH:
+					if(dlen > 0 && dbuf[0] == 0x5)
+					{
+						if(dlen > 2)
+						{
+							int i = 2;
+							while(i < dbuf[1]+2)
+							{
+								if(dbuf[i] == 0x2)
+								{
+									char rebuf[2] = {0x5, 0x2};
+									if(send(fd, rebuf, 2, 0) > 0)
+									{
+										tconn->gwlink_status = GWLINK_PASS;
+									}
+									break;
+								}
+								i++;
+							}
+						}
+					}
+					return 0;
 
+				case GWLINK_PASS:
+					//PRINT_HEX(dbuf, dlen);
+					if(dlen > 0 && dbuf[0] == 0x1)
+					{
+						if(dlen > 1 && dbuf[1]+3<dlen && 3+dbuf[1]+dbuf[2+dbuf[1]]<=dlen)
+						{
+							char user[128] = {0};
+							char pass[128] = {0};
+							memcpy(user, dbuf+2, dbuf[1]);
+							memcpy(pass, dbuf+3+dbuf[1], dbuf[2+dbuf[1]]);
+							if(!strcmp(user, get_auth_user())
+								&& strlen(user) == strlen(get_auth_user())
+								&& !strcmp(pass, get_auth_pass())
+								&& strlen(pass) == strlen(get_auth_pass()))
+							{
+								char rebuf[2] = {0x1, 0};
+								if(send(fd, rebuf, 2, 0) > 0)
+								{
+									tconn->gwlink_status = GWLINK_START;
+								}
+								return 0;
+							}
+							else
+							{
+								char rebuf[2] = {0x1, 0x1};
+								send(fd, rebuf, 2, 0);
+							}
+						}
+					}
+
+					close(fd);
+					select_clr(fd);
+					delfrom_tcpconn_list(fd);
+					printf("%d: close, fd=%d\n", __LINE__, fd);
+					return 0;
+
+				default:
+					break;
+				}
+			}
+#endif
 			if(extdata->toconn)
 			{
 				if(send(extdata->toconn->fd, dbuf, dlen, 0) < 0)
