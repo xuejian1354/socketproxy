@@ -6,7 +6,6 @@
 #include <netdb.h>
 #include <errno.h>
 
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -128,7 +127,7 @@ int main(int argc, char **argv)
 
 	while(get_end())
 	{
-		if(select_listen() < 0)
+		if(select_listen(0) < 0)
 		{
 			set_end(0);
 		}
@@ -242,13 +241,13 @@ int net_tcp_recv(int fd)
 				{
 					int tofd = extdata->toconn->fd;
 					close(tofd);
-					select_clr(tofd);
+					select_clr(0, tofd);
 					delfrom_tcpconn_list(tofd);
 					printf("%d: close, fd=%d\n", __LINE__, tofd);
 				}
 
 				close(fd);
-				select_clr(fd);
+				select_clr(0, fd);
 				delfrom_tcpconn_list(fd);
 				printf("%d: close, fd=%d\n", __LINE__, fd);
 				return 0;
@@ -312,7 +311,7 @@ int net_tcp_recv(int fd)
 					}
 
 					close(fd);
-					select_clr(fd);
+					select_clr(0, fd);
 					delfrom_tcpconn_list(fd);
 					printf("%d: close, fd=%d\n", __LINE__, fd);
 					return 0;
@@ -330,12 +329,12 @@ int net_tcp_recv(int fd)
 
 					int tofd = extdata->toconn->fd;
 					close(tofd);
-					select_clr(tofd);
+					select_clr(0, tofd);
 					delfrom_tcpconn_list(tofd);
 					printf("%d: close, fd=%d\n", __LINE__, tofd);
 
 					close(fd);
-					select_clr(fd);
+					select_clr(0, fd);
 					delfrom_tcpconn_list(fd);
 					printf("%d: close, fd=%d\n", __LINE__, fd);
 				}
@@ -343,7 +342,7 @@ int net_tcp_recv(int fd)
 			else
 			{
 				close(fd);
-				select_clr(fd);
+				select_clr(0, fd);
 				delfrom_tcpconn_list(fd);
 				printf("%d: close, fd=%d\n", __LINE__, fd);
 			}
@@ -353,7 +352,7 @@ int net_tcp_recv(int fd)
 	return 0;
 }
 
-void time_handler()
+void time_handler(int index)
 {
 }
 

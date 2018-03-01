@@ -12,7 +12,7 @@ struct timespec *get_timespec();
 int net_tcp_connect();
 int net_tcp_recv(int fd);
 
-void time_handler();
+void time_handler(int index);
 
 #endif  // __NETHANDLER_H__
 

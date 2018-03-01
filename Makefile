@@ -6,9 +6,8 @@ $(shell find -name "*.h" | xargs chmod -x)
 
 include $(TOPDIR)/config.mk
 
-CFLAGS+=-I.
-#LDFLAGS+=-static -L/home/sam/review/openwrt-tooltest/staging_dir/target-x86_64-redhat-linux/usr/lib -luv
-#LDFLAGS+=-static -L/home/sam/review/openwrt-tooltest/staging_dir/target-mips-unknown-linux-uclibc/usr/lib -luv
+CFLAGS+=-I. -w
+LDFLAGS+=-lpthread
 
 TARGET_NAME:=skproxy
 TARGET:=$(addprefix $(DIR),$(TARGET_NAME))

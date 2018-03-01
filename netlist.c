@@ -27,6 +27,7 @@ tcp_conn_t *new_tcpconn(int fd, gwlink_status_e status,
 
 	tcp_conn_t *tconn = calloc(1, sizeof(tcp_conn_t));
 	tconn->fd = fd;
+	tconn->pt_pos = -1;
 	tconn->gwlink_status = status;
 	tconn->port = port;
 	strcpy(tconn->host_addr, host_addr);
@@ -149,25 +150,5 @@ int delfrom_tcpconn_list(int fd)
 	AI_PRINTF("[%s] %s:no found connectin in tcp conn list\n",
 				get_current_time(), __FUNCTION__);
 	return -1;
-}
-
-void clear_all_conn(void (*del_call)(tcp_conn_t *))
-{
-	tcp_conn_t *t_list, *b_list;
-
-	t_list=tcp_conn_list.p_head;
-	while (t_list != NULL)
-	{
-		b_list = t_list;
-		t_list = t_list->next;
-
-		del_call(b_list);
-
-		free(b_list->extdata);
-		free(b_list);
-	}
-
-	tcp_conn_list.p_head = NULL;
-	tcp_conn_list.num = 0;
 }
 

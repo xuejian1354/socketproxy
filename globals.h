@@ -10,8 +10,13 @@
 #include <time.h>
 #include <signal.h>
 #include <string.h>
+#include <pthread.h>
 #include <sys/time.h>
 #include <sys/stat.h>
+
+#ifndef PTHREAD_SELECT_NUM
+#define PTHREAD_SELECT_NUM	4
+#endif
 
 #define GWLINK_WITH_SOCKS5_PASS
 

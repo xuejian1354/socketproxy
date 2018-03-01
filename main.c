@@ -34,15 +34,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	while(get_end())
-	{
-		if(select_listen() < 0)
-		{
-			//usleep(1000);
-			set_end(0);
-		}
-		usleep(1000);
-	}
+	pthread_with_select();
 
 	AI_PRINTF("[%s] %s exit, %d\n", get_current_time(), TARGET_NAME, getpid());
 	return 0;

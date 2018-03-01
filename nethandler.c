@@ -18,13 +18,25 @@ static char rate_print[64];
 struct timespec *select_time = NULL;
 struct timespec local_time;
 
-int serlink_count = 0;
+int serlink_count[PTHREAD_SELECT_NUM] = {0};
 
 int before_channel;
 int iswork = 0;
 
 int get_rand(int min, int max) {
 	return (rand() % (max-min+1)) + min;
+}
+
+int get_total_serlink_count()
+{
+	int i;
+	int total = 0;
+	for(i=0; i<PTHREAD_SELECT_NUM; i++)
+	{
+		total += serlink_count[i];
+	}
+
+	return total;
 }
 
 void set_timespec(time_t s)
@@ -73,16 +85,16 @@ void send_with_rate_callback(int fd, char *data, int len,
 	tcp_conn_t *src_conn, tcp_conn_t *dst_conn,
 	void(*rate_call)(float, tcp_conn_t *, tcp_conn_t *))
 {
-	int st = 100;
+	int stm = 100;
 	unsigned long sbtime = get_system_time();
 	while(send(fd, data, len, 0) < 0)
 	{
 		if(errno == EAGAIN)
         {
-            usleep(st);
-			if(st < 1000) st += 100;
-			else if(st < 50000) st += 1000;
-			else st += 100000;
+            usleep(stm);
+			if(stm < 1000) stm += 100;
+			else if(stm < 50000) stm += 1000;
+			else stm += 100000;
 
             //printf("send() again: errno==EAGAIN\n");
 			continue;
@@ -99,29 +111,19 @@ void send_with_rate_callback(int fd, char *data, int len,
 	rate_call(((float)len*1000)/(get_system_time()-sbtime), src_conn, dst_conn);
 }
 
-void close_connection(int fd)
+void close_connection(int index, int fd)
 {
 	close(fd);
-	select_clr(fd);
+	select_clr(index, fd);
 }
 
-void close_connection_from_list(tcp_conn_t *tconn)
+void detect_link(int index)
 {
-	if(tconn)
+	if(iswork && serlink_count[index] <= 5)
 	{
-		close(tconn->fd);
-		select_clr(tconn->fd);
-	}
-}
-
-void detect_link()
-{
-	if(iswork && serlink_count <= 10)
-	{
-		//clear_all_conn(close_connection_from_list);
 		set_timespec(get_rand(1200, 2400));
 	}
-	else if(serlink_count < get_max_connections_num())
+	else if(serlink_count[index] < (get_max_connections_num()/PTHREAD_SELECT_NUM))
 	{
 		set_timespec(get_rand(58, 118));
 	}
@@ -132,13 +134,13 @@ void detect_link()
 	}
 }
 
-void release_connection_with_fd(int fd)
+void release_connection_with_fd(int index, int fd)
 {
-	detect_link();
-	close_connection(fd);
+	detect_link(index);
+	close_connection(index, fd);
 	delfrom_tcpconn_list(fd);
 	AO_PRINTF("[%s] close, fd=%d, total=%d\n",
-		get_current_time(), fd, serlink_count);
+		get_current_time(), fd, get_total_serlink_count());
 }
 
 uint32 get_socket_local_port(int fd)
@@ -154,7 +156,7 @@ uint32 get_socket_local_port(int fd)
 	return 0;
 }
 
-tcp_conn_t *try_connect(char *host, int port, enum ConnWay way)
+tcp_conn_t *try_connect(int index, char *host, int port, enum ConnWay way)
 {
 	int fd;
 	tcp_conn_t *tconn;
@@ -197,13 +199,28 @@ tcp_conn_t *try_connect(char *host, int port, enum ConnWay way)
 		return NULL;
 	}
 
+	if(way != CONN_WITH_CLIENT)
+	{
+		if(index < 0)
+			tconn->pt_pos = select_wtset(fd);
+		else
+			tconn->pt_pos = select_wtset_with_index(index, fd);
+	}
+	else
+	{
+		if(index < 0)
+			tconn->pt_pos = select_set(fd);
+		else
+			tconn->pt_pos = select_set_with_index(index, fd);
+	}
+
 	if(res == 0)
 	{
 		tconn->port = get_socket_local_port(fd);
 		if(way != CONN_WITH_CLIENT)
 		{
-			serlink_count++;
-			detect_link();
+			serlink_count[tconn->pt_pos]++;
+			detect_link(tconn->pt_pos);
 #ifdef GWLINK_WITH_SOCKS5_PASS
 			tconn->gwlink_status = GWLINK_AUTH;
 #else
@@ -217,19 +234,10 @@ tcp_conn_t *try_connect(char *host, int port, enum ConnWay way)
 
 		AO_PRINTF("[%s] line %d connect %s:%d, current port=%d, fd=%d, total=%d\n",
 				get_current_time(), __LINE__, tconn->host_addr,
-				tconn->host_port, tconn->port, fd, serlink_count);
+				tconn->host_port, tconn->port, fd, get_total_serlink_count());
 	}
 
 	addto_tcpconn_list(tconn);
-	if(way != CONN_WITH_CLIENT)
-	{
-		select_wtset(fd);
-	}
-	else
-	{
-		select_set(fd);
-	}
-
 	return tconn;
 }
 
@@ -239,7 +247,7 @@ int net_tcp_connect(char *host, int port)
 	int i;
 	for(i=0; i<get_max_connections_num(); i++)
 	{
-		try_connect(get_host_addr(), get_host_port(), CONN_WITH_SERVER);
+		try_connect(-1, get_host_addr(), get_host_port(), CONN_WITH_SERVER);
 	}
 
 	return 0;
@@ -288,8 +296,20 @@ int net_tcp_recv(int fd)
 
 	if(t_conn->gwlink_status > GWLINK_INIT)
 	{
-	   	if ((nbytes = recv(fd, buf, sizeof(buf), 0)) <= 0)
+	   	while ((nbytes = recv(fd, buf, sizeof(buf), 0)) <= 0)
 	   	{
+			int stm = 100;
+			if(errno == EAGAIN)
+			{
+				usleep(stm);
+				if(stm < 1000) stm += 100;
+				else if(stm < 50000) stm += 1000;
+				else stm += 100000;
+
+				//printf("send() again: errno==EAGAIN\n");
+				continue;
+			}
+
 			int isreconnect = 0;
 			ext_conn_t *extdata = (ext_conn_t *)(t_conn->extdata);
 
@@ -299,12 +319,12 @@ int net_tcp_recv(int fd)
 					AO_PRINTF("[%s] line:%d to target\n", get_current_time(), __LINE__);
 				else
 				{
-					serlink_count--;
+					serlink_count[t_conn->pt_pos]--;
 					if(((ext_conn_t *)(toconn->extdata))->isuse)
 						isreconnect = 1;
 					AO_PRINTF("[%s] line:%d to server\n", get_current_time(), __LINE__);
 				}
-				release_connection_with_fd(toconn->fd);
+				release_connection_with_fd(toconn->pt_pos, toconn->fd);
 			}
 			else
 			{
@@ -313,7 +333,7 @@ int net_tcp_recv(int fd)
 
 			if(extdata->way == CONN_WITH_SERVER)
 			{
-				serlink_count--;
+				serlink_count[t_conn->pt_pos]--;
 				if(extdata->isuse)
 					isreconnect = 1;
 
@@ -322,13 +342,17 @@ int net_tcp_recv(int fd)
 			else
 				AO_PRINTF("[%s] line:%d to target\n", get_current_time(), __LINE__);
 
-			release_connection_with_fd(fd);
+			int tpos = t_conn->pt_pos;
+			release_connection_with_fd(t_conn->pt_pos, fd);
 			if(isreconnect)
 			{
-				try_connect(get_host_addr(), get_host_port(), CONN_WITH_SERVER);
+				try_connect(tpos, get_host_addr(), get_host_port(), CONN_WITH_SERVER);
 			}
+
+			return 0;
 		}
-		else
+
+		if(1)
 		{
 			//PRINT_HEX(buf, nbytes);
 #ifdef GWLINK_WITH_SOCKS5_PASS
@@ -409,7 +433,7 @@ int net_tcp_recv(int fd)
 			else if(((ext_conn_t *)(t_conn->extdata))->way == CONN_WITH_SERVER)
 			{
 				tcp_conn_t *cliconn = 
-					try_connect("127.0.0.1", get_transport(), CONN_WITH_CLIENT);
+					try_connect(t_conn->pt_pos, "127.0.0.1", get_transport(), CONN_WITH_CLIENT);
 				if(cliconn)
 				{
 					((ext_conn_t *)(t_conn->extdata))->toconn = cliconn;
@@ -441,12 +465,22 @@ int net_tcp_recv(int fd)
 	else
 	{
 		int errinfo, errlen;
+		int pt_pos = t_conn->pt_pos;
 		errlen = sizeof(errlen);
 
         if (0 == getsockopt(fd, SOL_SOCKET, SO_ERROR, &errinfo, &errlen))    
         {
+			fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) & ~O_NONBLOCK);
 			t_conn->port = get_socket_local_port(fd);
-			select_set(fd);
+			if(t_conn->pt_pos < 0)
+			{
+				t_conn->pt_pos = select_set(fd);
+				pt_pos = t_conn->pt_pos;
+			}
+			else
+			{
+				select_set_with_index(t_conn->pt_pos, fd);
+			}
 
 			if(((ext_conn_t *)(t_conn->extdata))->way == CONN_WITH_SERVER)
 			{
@@ -473,13 +507,13 @@ int net_tcp_recv(int fd)
 #else
 				t_conn->gwlink_status = GWLINK_START;
 #endif
-				serlink_count++;
-				detect_link();
+				serlink_count[t_conn->pt_pos]++;
+				detect_link(t_conn->pt_pos);
 			}
 
 			AO_PRINTF("[%s] connect %s:%d, current port=%d, fd=%d, total=%d\n",
 				get_current_time(), t_conn->host_addr,
-				t_conn->host_port, t_conn->port, fd, serlink_count);
+				t_conn->host_port, t_conn->port, fd, get_total_serlink_count());
 
 			if(((ext_conn_t *)(t_conn->extdata))->way == CONN_WITH_CLIENT)
 			{
@@ -487,7 +521,7 @@ int net_tcp_recv(int fd)
 				if(((ext_conn_t *)(t_conn->extdata))->toconn == NULL)
 				{
 					AO_PRINTF("[%s] line:%d to target\n", get_current_time(), __LINE__);
-					release_connection_with_fd(fd);
+					release_connection_with_fd(t_conn->pt_pos, fd);
 				}
 			}
         }
@@ -497,21 +531,21 @@ int net_tcp_recv(int fd)
 				get_current_time(), t_conn->host_addr, fd);
 		}
 
-		select_wtclr(fd);
+		select_wtclr(pt_pos, fd);
 	}
 
 	return 0;
 }
 
-void time_handler()
+void time_handler(int index)
 {
 	AO_PRINTF("[%s] time handle, %d\n", get_current_time(), get_timespec()->tv_sec);
-	if(serlink_count < get_max_connections_num())
+	if(serlink_count[index] < (get_max_connections_num()/PTHREAD_SELECT_NUM))
 	{
-		int i = get_max_connections_num() - serlink_count;
+		int i = (get_max_connections_num()/PTHREAD_SELECT_NUM) - serlink_count[index];
 		while(i-- > 0)
 		{
-			try_connect(get_host_addr(), get_host_port(), CONN_WITH_SERVER);
+			try_connect(index, get_host_addr(), get_host_port(), CONN_WITH_SERVER);
 		}
 	}
 }

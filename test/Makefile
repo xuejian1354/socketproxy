@@ -1,12 +1,21 @@
 TARGETS=$(patsubst %.c,%,$(shell ls *.c))
-CFLAGS+=-I../
+CFLAGS+=-I../ -DPTHREAD_SELECT_NUM=1
 LDFLAGS+=-lpthread
+
+proxy_server:proxy_server.o corecomm.o globals.o netlist.o
 
 all:$(TARGETS)
 
-proxy_server:proxy_server.o ../corecomm.o ../globals.o ../netlist.o
+corecomm.o:../corecomm.c
+	$(CC) $(CFLAGS) -c -w -o $@ $<
+
+globals.o:../globals.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+netlist.o:../netlist.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 %:%.c
 
 clean:
-	$(RM) $(TARGETS)
+	$(RM) *.o $(TARGETS)
