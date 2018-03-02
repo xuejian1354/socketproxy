@@ -7,6 +7,7 @@
 static int pt_index = 0;
 static pthread_mutex_t mutex;
 static pthread_t ptid[PTHREAD_SELECT_NUM];
+static int before_fd = -1;
 static int maxfd[PTHREAD_SELECT_NUM];
 static fd_set global_rdfs[PTHREAD_SELECT_NUM];
 static fd_set global_wtfs[PTHREAD_SELECT_NUM];
@@ -104,13 +105,28 @@ int select_listen(int index)
 	{
 		for(i=0; i<maxfd[index]; i++)
 		{
-			if(FD_ISSET(i, &current_rdfs) || FD_ISSET(i, &current_wtfs))
+			if(before_fd != i)
 			{
-				pthread_mutex_lock(&mutex);
-				ret = net_tcp_recv(i);
-				pthread_mutex_unlock(&mutex);
-				return ret;
+fd_is_set:
+				if(FD_ISSET(i, &current_rdfs) || FD_ISSET(i, &current_wtfs))
+				{
+					pthread_mutex_lock(&mutex);
+					before_fd = i;
+					ret = net_tcp_recv(i);
+					pthread_mutex_unlock(&mutex);
+					return ret;
+				}
+				else if(before_fd == i)
+				{
+					break;
+				}
 			}
+		}
+
+		if(before_fd >= 0)
+		{
+			i = before_fd;
+			goto fd_is_set;
 		}
 	}
 	else if (ret == 0)

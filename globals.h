@@ -15,7 +15,7 @@
 #include <sys/stat.h>
 
 #ifndef PTHREAD_SELECT_NUM
-#define PTHREAD_SELECT_NUM	4
+#define PTHREAD_SELECT_NUM	1
 #endif
 
 #define GWLINK_WITH_SOCKS5_PASS

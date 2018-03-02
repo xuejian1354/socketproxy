@@ -500,7 +500,7 @@ int net_tcp_recv(int fd)
 			        }
 			        else
 			        {
-						t_conn->gwlink_status = GWLINK_INIT;
+						t_conn->gwlink_status = GWLINK_START;
 			            break;
 			        }
 				}
@@ -511,8 +511,8 @@ int net_tcp_recv(int fd)
 				detect_link(t_conn->pt_pos);
 			}
 
-			AO_PRINTF("[%s] connect %s:%d, current port=%d, fd=%d, total=%d\n",
-				get_current_time(), t_conn->host_addr,
+			AO_PRINTF("[%s] line %d connect %s:%d, current port=%d, fd=%d, total=%d\n",
+				get_current_time(), __LINE__, t_conn->host_addr,
 				t_conn->host_port, t_conn->port, fd, get_total_serlink_count());
 
 			if(((ext_conn_t *)(t_conn->extdata))->way == CONN_WITH_CLIENT)
