@@ -5,7 +5,7 @@ ifneq ("$(origin prefix)", "command line")
 endif
 
 ifneq ("$(origin dir)", "command line")
-  dir :=
+  dir :=bin
 endif
 
 ifneq ("$(dir)", "")
