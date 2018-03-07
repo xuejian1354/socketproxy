@@ -23,10 +23,6 @@ int serlink_count[PTHREAD_SELECT_NUM] = { 0 };
 int before_channel;
 int iswork = 0;
 
-int get_rand(int min, int max) {
-	return (rand() % (max - min + 1)) + min;
-}
-
 int get_total_serlink_count() {
 	int i;
 	int total = 0;
@@ -340,10 +336,12 @@ int net_tcp_recv(int fd) {
 			} else if (t_conn->gwlink_status == GWLINK_PASS) {
 				if (nbytes >= 2 && buf[0] == 0x01 && buf[1] == 0) {
 					t_conn->gwlink_status = GWLINK_START;
-					AO_PRINTF("[%s] line %d: auth success, fd=%d\n", get_current_time(), __LINE__, t_conn->fd);
+					AO_PRINTF("[%s] line %d: user=%s auth success, fd=%d\n", get_current_time(),
+							__LINE__, get_auth_user(), t_conn->fd);
 				} else if (nbytes >= 2 && buf[0] == 0x01 && buf[1] == 0x01) {
 					t_conn->gwlink_status = GWLINK_AUTH;
-					AO_PRINTF("[%s] line %d: auth fail, fd=%d\n", get_current_time(), __LINE__, t_conn->fd);
+					AO_PRINTF("[%s] line %d: user=%s pass=%s, auth fail, fd=%d\n", get_current_time(),
+							__LINE__, get_auth_user(), get_auth_pass(), t_conn->fd);
 				}
 
 				if (nbytes > 2) {

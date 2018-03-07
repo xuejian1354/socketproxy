@@ -36,7 +36,8 @@ typedef struct ExtConnData {
 #define MAXSIZE	8192
 #define DEFAULT_USER	"admin"
 #define DEFAULT_PASS	"admin"
-#define DEFAULT_TRANSPORT	1080
+#define DEFAULT_HOSTPORT	40000
+#define DEFAULT_TRANSPORT	5000
 #define SERVER_TCPLINK_NUM	200
 #define DEFAULT_MACDEV	"eth0"
 

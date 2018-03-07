@@ -2,7 +2,9 @@
  * globals.c
  */
 #include "globals.h"
+#include <stdlib.h>
 #include <errno.h>
+#include <time.h>
 #include <dirent.h>
 #include <signal.h>
 #include <sys/socket.h>  
@@ -21,16 +23,16 @@ static int test = 0;
 static int daemon_run = 0;
 
 static char host_addr[64];
-static int host_port;
+static int host_port = DEFAULT_HOSTPORT;
 
 #ifdef GWLINK_WITH_SOCKS5_PASS
+char macaddr[64];
+char macdev[64] = DEFAULT_MACDEV;
 char auth_user[128] = DEFAULT_USER;
 char auth_pass[128] = DEFAULT_PASS;
 #endif
 
 static int transport = DEFAULT_TRANSPORT;
-
-static char macdev[64] = DEFAULT_MACDEV;
 static int maxconn = SERVER_TCPLINK_NUM;
 
 static void end_handler(int sig);
@@ -60,6 +62,38 @@ int get_host_port() {
 }
 
 #ifdef GWLINK_WITH_SOCKS5_PASS
+char *get_mac_addr() {
+	struct ifreq ifreq;
+	int sock;
+
+	if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+		return NULL;
+	}
+
+	strcpy(ifreq.ifr_name, macdev);
+
+	if (ioctl(sock, SIOCGIFHWADDR, &ifreq) < 0) {
+		return NULL;
+	}
+
+	memset(macaddr, 0, sizeof(macaddr));
+	sprintf(macaddr, "%02X%02X%02X%02X%02X%02X", (uint8)ifreq.ifr_hwaddr.sa_data[0],
+			(uint8)ifreq.ifr_hwaddr.sa_data[1], (uint8)ifreq.ifr_hwaddr.sa_data[2],
+			(uint8)ifreq.ifr_hwaddr.sa_data[3], (uint8)ifreq.ifr_hwaddr.sa_data[4],
+			(uint8)ifreq.ifr_hwaddr.sa_data[5]);
+	if(!strcmp(macaddr, "000000000000"))
+	{
+		return NULL;
+	}
+
+	return macaddr;
+}
+
+int get_rand(int min, int max) {
+	srand((unsigned int)time(NULL));
+	return ( rand() % (max - min + 1)) + min;
+}
+
 char *get_auth_user() {
 	return auth_user;
 }
@@ -75,30 +109,6 @@ int get_transport() {
 
 int get_max_connections_num() {
 	return maxconn;
-}
-
-int get_host_port_with_mac(int min, int max) {
-	struct ifreq ifreq;
-	int sock;
-
-	if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-		return 0;
-	}
-
-	strcpy(ifreq.ifr_name, macdev);
-
-	if (ioctl(sock, SIOCGIFHWADDR, &ifreq) < 0) {
-		return 0;
-	}
-
-	long macval = 0;
-	macval = (macval << 8) + ifreq.ifr_hwaddr.sa_data[0];
-	macval = (macval << 8) + ifreq.ifr_hwaddr.sa_data[1];
-	macval = (macval << 8) + ifreq.ifr_hwaddr.sa_data[2];
-	macval = (macval << 8) + ifreq.ifr_hwaddr.sa_data[3];
-	macval = (macval << 8) + ifreq.ifr_hwaddr.sa_data[4];
-	macval = (macval << 8) + ifreq.ifr_hwaddr.sa_data[5];
-	return (macval % (max - min + 1)) + min;
 }
 
 void split_host_and_port(char *addrstr) {
@@ -117,12 +127,12 @@ void split_host_and_port(char *addrstr) {
 
 	memset(host_addr, 0, sizeof(host_addr));
 	strcpy(host_addr, addrstr);
-	host_port = 0;
 }
 
 int start_params(int argc, char **argv) {
 	int ch;
 	int isget = 0;
+	int ismac_replace = 0;
 	opterr = 0;
 
 	const char *optstrs = "a:c:p:e:m:d:t:h";
@@ -132,15 +142,15 @@ int start_params(int argc, char **argv) {
 #ifdef GWLINK_WITH_SOCKS5_PASS
 			AI_PRINTF("Usage: %s [-t print|daemon] -c <host[:port]> [-p transport] [-a user:pass] [-e macdev] [-m maxconn]\n", argv[0]);
 #else
-			AI_PRINTF("Usage: %s [-t print|daemon] -c <host[:port]> [-p transport] [-e macdev] [-m maxconn]\n", argv[0]);
+			AI_PRINTF("Usage: %s [-t print|daemon] -c <host[:port]> [-p transport] [-m maxconn]\n", argv[0]);
 #endif
 			AI_PRINTF("Default\n");
-			AI_PRINTF("    port        (macdev dependence)\n");
 #ifdef GWLINK_WITH_SOCKS5_PASS
 			AI_PRINTF("    user:pass   %s:%s\n", DEFAULT_USER, DEFAULT_PASS);
-#endif
-			AI_PRINTF("    transport   %d\n", DEFAULT_TRANSPORT);
 			AI_PRINTF("    macdev      %s\n", DEFAULT_MACDEV);
+#endif
+			AI_PRINTF("    port        %d\n", DEFAULT_HOSTPORT);
+			AI_PRINTF("    transport   %d\n", DEFAULT_TRANSPORT);
 			AI_PRINTF("    maxconn     %d\n", SERVER_TCPLINK_NUM);
 			return 1;
 
@@ -184,13 +194,14 @@ int start_params(int argc, char **argv) {
 				}
 			}
 			break;
-#endif
+
 		case 'e':
 			isget = 1;
+			ismac_replace = 1;
 			memset(macdev, 0, sizeof(macdev));
 			strcpy(macdev, optarg);
 			break;
-
+#endif
 		case 'm':
 			isget = 1;
 			maxconn = atoi(optarg);
@@ -203,15 +214,20 @@ int start_params(int argc, char **argv) {
 		AI_PRINTF("\'%s -h\' get more help infomations.\n", argv[0]);
 		return -1;
 	}
-
-	if (!host_port) {
-		if ((host_port = get_host_port_with_mac(40000, 50000)) == 0) {
+#ifdef GWLINK_WITH_SOCKS5_PASS
+	if (ismac_replace) {
+		char *mac_addr = get_mac_addr();
+		int  mac_rand = get_rand(0, 0xFFFE);
+		if (mac_addr == NULL || mac_rand == 0) {
 			AI_PRINTF("Can't get mac addr from %s\n", macdev);
 			AI_PRINTF("\'%s -h\' get more help infomations.\n", argv[0]);
 			return -1;
 		}
-	}
 
+		memset(auth_user, 0, sizeof(auth_user));
+		sprintf(auth_user, "%s%04X", mac_addr, (uint32)mac_rand);
+	}
+#endif
 	return 0;
 }
 
