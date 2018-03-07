@@ -7,30 +7,25 @@
 extern "C" {
 #endif
 
-int main(int argc, char **argv)
-{
-	if(start_params(argc, argv) != 0)
-	{
+int main(int argc, char **argv) {
+	if (start_params(argc, argv) != 0) {
 		return 1;
 	}
 
 	process_signal_register();
 
-	if(mach_init() < 0)
-	{
+	if (mach_init() < 0) {
 		return 1;
 	}
 
-	AI_PRINTF("[%s] %s start, getpid=%d\n", 
-		get_current_time(), TARGET_NAME, getpid());
+	AI_PRINTF("[%s] %s start, getpid=%d\n",
+			get_current_time(), TARGET_NAME, getpid());
 
-	if (select_init() < 0)
-	{
+	if (select_init() < 0) {
 		return 1;
 	}
 
-	if (net_tcp_connect() < 0)
-	{
+	if (net_tcp_connect() < 0) {
 		return 1;
 	}
 

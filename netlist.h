@@ -14,14 +14,10 @@
 #define TRANS_TCP_CONN_MAX_SIZE	65536
 
 typedef enum {
-    GWLINK_INIT = 0,
-    GWLINK_AUTH,
-    GWLINK_PASS,
-    GWLINK_START
+	GWLINK_INIT = 0, GWLINK_AUTH, GWLINK_PASS, GWLINK_START
 } gwlink_status_e;
 
-typedef struct TCPConn
-{
+typedef struct TCPConn {
 	int fd;
 	int pt_pos;
 	gwlink_status_e gwlink_status;
@@ -31,18 +27,17 @@ typedef struct TCPConn
 	struct sockaddr_in host_in;
 	void *extdata;
 	struct TCPConn *next;
-}tcp_conn_t;
+} tcp_conn_t;
 
-typedef struct TCPConnList
-{
+typedef struct TCPConnList {
 	tcp_conn_t *p_head;
 	int num;
 	const int max_size;
-}tcp_conn_list_t;
+} tcp_conn_list_t;
 
 tcp_conn_list_t *get_tcp_conn_list();
-tcp_conn_t *new_tcpconn(int fd, gwlink_status_e status, 
-	int port, char *host_addr, int host_port, void *extdata);
+tcp_conn_t *new_tcpconn(int fd, gwlink_status_e status, int port,
+		char *host_addr, int host_port, void *extdata);
 int addto_tcpconn_list(tcp_conn_t *list);
 tcp_conn_t *queryfrom_tcpconn_list(int fd);
 tcp_conn_t *queryfrom_tcpconn_list_with_localport(int port);

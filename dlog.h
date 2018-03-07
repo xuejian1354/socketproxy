@@ -52,7 +52,6 @@ st(	\
 )
 #endif
 
-
 #define PRINT_HEX(data, len)	\
 st(	\
         int x;	\
@@ -62,7 +61,6 @@ st(	\
         }	\
         AO_PRINTF("\n");	\
 )
-
 
 #ifdef __cplusplus
 }

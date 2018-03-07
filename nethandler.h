@@ -15,4 +15,3 @@ int net_tcp_recv(int fd);
 void time_handler(int index);
 
 #endif  // __NETHANDLER_H__
-

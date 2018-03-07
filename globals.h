@@ -10,7 +10,6 @@
 #include <time.h>
 #include <signal.h>
 #include <string.h>
-#include <pthread.h>
 #include <sys/time.h>
 #include <sys/stat.h>
 
@@ -24,19 +23,15 @@
 extern "C" {
 #endif
 
-enum ConnWay
-{
-	CONN_WITH_SERVER = 0,
-	CONN_WITH_CLIENT
+enum ConnWay {
+	CONN_WITH_SERVER = 0, CONN_WITH_CLIENT
 };
 
-typedef struct ExtConnData
-{
+typedef struct ExtConnData {
 	tcp_conn_t *toconn;
 	enum ConnWay way;
 	int isuse;
-}ext_conn_t;
-
+} ext_conn_t;
 
 #define MAXSIZE	8192
 #define DEFAULT_USER	"admin"
@@ -47,7 +42,6 @@ typedef struct ExtConnData
 
 int istest();
 int isdaemon();
-
 
 void set_end(int end);
 int get_end();
@@ -68,7 +62,6 @@ void process_signal_register();
 
 char *get_current_time();
 unsigned long get_system_time();
-
 
 #ifdef __cplusplus
 }

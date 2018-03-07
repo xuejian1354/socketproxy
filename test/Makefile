@@ -3,6 +3,7 @@ CFLAGS+=-I../ -DPTHREAD_SELECT_NUM=1
 LDFLAGS+=-lpthread
 
 proxy_server:proxy_server.o corecomm.o globals.o netlist.o
+	$(CC) -O2 -o $@ $^ $(LDFLAGS)
 
 all:$(TARGETS)
 
