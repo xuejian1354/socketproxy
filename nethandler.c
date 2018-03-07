@@ -12,7 +12,7 @@ char userpass_frame[256];
 #endif
 
 static int nbytes;
-static char buf[MAXSIZE];
+static uint8 buf[MAXSIZE];
 static char rate_print[64];
 
 struct timespec *select_time = NULL;
@@ -247,8 +247,9 @@ int net_tcp_recv(int fd) {
 	}
 
 	if (t_conn->gwlink_status > GWLINK_INIT) {
-		while ((nbytes = recv(fd, buf, sizeof(buf), 0)) <= 0) {
-			int stm = 100;
+		int stm = 100;
+		while ((nbytes = recv(fd, buf, sizeof(buf), 0)) <= 0
+				|| t_conn->gwlink_status == GWLINK_RELEASE) {
 			if (errno == EAGAIN) {
 				usleep(stm);
 				if (stm < 1000)
@@ -335,7 +336,11 @@ int net_tcp_recv(int fd) {
 				return 0;
 			} else if (t_conn->gwlink_status == GWLINK_PASS) {
 				if (nbytes >= 2 && buf[0] == 0x01 && buf[1] == 0) {
+#ifdef CLIPROXY_WITH_SOCKS5
+					t_conn->gwlink_status = GWLINK_SOCKS5_INIT;
+#else
 					t_conn->gwlink_status = GWLINK_START;
+#endif
 					AO_PRINTF("[%s] line %d: user=%s auth success, fd=%d\n", get_current_time(),
 							__LINE__, get_auth_user(), t_conn->fd);
 				} else if (nbytes >= 2 && buf[0] == 0x01 && buf[1] == 0x01) {
@@ -354,6 +359,130 @@ int net_tcp_recv(int fd) {
 				}
 			}
 #endif
+#ifdef CLIPROXY_WITH_SOCKS5
+			if (get_trans_set() && t_conn->gwlink_status == GWLINK_SOCKS5_INIT) {
+				t_conn->gwlink_status = GWLINK_START;
+			} else if (t_conn->gwlink_status == GWLINK_SOCKS5_INIT) {
+				int i, found = 0;
+				uint8 response[2] = { 0x05, 0xFF };
+
+				if (nbytes < 3 || buf[0] != 5 || buf[1] + 2 > nbytes) {
+					return 0;
+				}
+
+				for (i = 0; i < buf[1]; i++) {
+					if (buf[2 + i] == 0 || buf[2 + i] == 0x02) {
+						found = 1;
+						response[1] = buf[2 + i];
+						break;
+					}
+				}
+
+				while (send(fd, response, 2, 0) < 0) {
+					char ebuf[8] = { 0 };
+					sprintf(ebuf, "%d", __LINE__ + 1);
+					perror(ebuf);
+
+					if (errno == EAGAIN) {
+						usleep(100000);
+						continue;
+					} else {
+						t_conn->gwlink_status = GWLINK_RELEASE;
+						return 0;;
+					}
+				}
+
+				switch (response[1]) {
+				case 0:
+					t_conn->gwlink_status = GWLINK_SOCKS5_CONN;
+					break;
+				case 2:
+					t_conn->gwlink_status = GWLINK_SOCKS5_AUTH;
+					break;
+				default:
+					t_conn->gwlink_status = GWLINK_RELEASE;
+					break;
+				}
+
+				return 0;
+			} else if (t_conn->gwlink_status == GWLINK_SOCKS5_AUTH) {
+				uint8 response[2] = { 0x01, 0 };
+				while (send(fd, response, 2, 0) < 0) {
+					char ebuf[8] = { 0 };
+					sprintf(ebuf, "%d", __LINE__ + 1);
+					perror(ebuf);
+
+					if (errno == EAGAIN) {
+						usleep(100000);
+						continue;
+					} else {
+						t_conn->gwlink_status = GWLINK_RELEASE;
+						return 0;;
+					}
+				}
+
+				t_conn->gwlink_status = GWLINK_SOCKS5_CONN;
+				return 0;
+			} else if (t_conn->gwlink_status == GWLINK_SOCKS5_CONN) {
+				if (nbytes < 6 || buf[0] != 5 || buf[1] != 1) {
+					t_conn->gwlink_status = GWLINK_RELEASE;
+					return 0;
+				}
+
+				char host[256] = { 0 };
+				int port = 0;
+				if (buf[3] == 1) {
+					if (nbytes < 10) {
+						t_conn->gwlink_status = GWLINK_RELEASE;
+						return 0;
+					}
+
+					sprintf(host, "%u.%u.%u.%u", buf[4], buf[5], buf[6], buf[7]);
+					port = (((uint32) buf[8]) << 8) + ((uint32) buf[9]);
+				} else if (buf[3] == 3) {
+					if (7 + buf[4] > nbytes) {
+						t_conn->gwlink_status = GWLINK_RELEASE;
+						return 0;
+					}
+
+					memcpy(host, buf + 5, buf[4]);
+					printf("buflen=%d\n", buf[4]);
+					port = (((uint32) buf[5 + buf[4]]) << 8) + ((uint32) buf[6
+							+ buf[4]]);
+				} else {
+					t_conn->gwlink_status = GWLINK_RELEASE;
+					return 0;
+				}
+
+				uint8 response[] = { 0x05, 0, 0, 0x01, 0, 0, 0, 0, 0, 0 };
+				tcp_conn_t *cliconn = try_connect(t_conn->pt_pos, host, port,
+						CONN_WITH_CLIENT);
+				if (cliconn) {
+					((ext_conn_t *) (t_conn->extdata))->toconn = cliconn;
+					((ext_conn_t *) (cliconn->extdata))->toconn = t_conn;
+					t_conn->gwlink_status = GWLINK_START;
+				} else {
+					response[1] = 0x01;
+					t_conn->gwlink_status = GWLINK_RELEASE;
+				}
+
+				while (send(fd, response, 10, 0) < 0) {
+					char ebuf[8] = { 0 };
+					sprintf(ebuf, "%d", __LINE__ + 1);
+					perror(ebuf);
+
+					if (errno == EAGAIN) {
+						usleep(100000);
+						continue;
+					} else {
+						t_conn->gwlink_status = GWLINK_RELEASE;
+						return 0;;
+					}
+				}
+
+				return 0;
+			}
+#endif
 			tcp_conn_t *toconn = ((ext_conn_t *) (t_conn->extdata))->toconn;
 			if (toconn) {
 				if (((ext_conn_t *) (t_conn->extdata))->way == CONN_WITH_SERVER) {
@@ -364,7 +493,7 @@ int net_tcp_recv(int fd) {
 							toconn, send_back_stream_call);
 				}
 			} else if (((ext_conn_t *) (t_conn->extdata))->way
-					== CONN_WITH_SERVER) {
+					== CONN_WITH_SERVER && get_trans_set()) {
 				tcp_conn_t *cliconn = try_connect(t_conn->pt_pos, "127.0.0.1",
 						get_transport(), CONN_WITH_CLIENT);
 				if (cliconn) {
@@ -417,10 +546,12 @@ int net_tcp_recv(int fd) {
 						usleep(100000);
 						continue;
 					} else {
-						t_conn->gwlink_status = GWLINK_START;
+						t_conn->gwlink_status = GWLINK_RELEASE;
 						break;
 					}
 				}
+#elif defined(CLIPROXY_WITH_SOCKS5)
+				t_conn->gwlink_status = GWLINK_SOCKS5_INIT;
 #else
 				t_conn->gwlink_status = GWLINK_START;
 #endif

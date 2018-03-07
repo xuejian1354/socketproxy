@@ -18,6 +18,7 @@
 #endif
 
 #define GWLINK_WITH_SOCKS5_PASS
+#define CLIPROXY_WITH_SOCKS5
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,13 +38,13 @@ typedef struct ExtConnData {
 #define DEFAULT_USER	"admin"
 #define DEFAULT_PASS	"admin"
 #define DEFAULT_HOSTPORT	40000
-#define DEFAULT_TRANSPORT	5000
+#define DEFAULT_TRANSPORT	50000
 #define SERVER_TCPLINK_NUM	200
 #define DEFAULT_MACDEV	"eth0"
 
 int istest();
 int isdaemon();
-
+int get_trans_set();
 void set_end(int end);
 int get_end();
 char *get_host_addr();
