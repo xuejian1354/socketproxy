@@ -30,6 +30,8 @@ tcp_conn_t *new_tcpconn(int fd, gwlink_status_e status, int port,
 	tconn->host_in.sin_port = htons(host_port);
 	tconn->host_in.sin_addr.s_addr
 			= ((struct in_addr *) (nlp_host->h_addr))->s_addr;
+	tconn->data = NULL;
+	tconn->len = 0;
 	tconn->extdata = extdata;
 	tconn->next = NULL;
 

@@ -32,6 +32,8 @@ typedef struct TCPConn {
 	char host_addr[64];
 	int host_port;
 	struct sockaddr_in host_in;
+	uint8 *data;
+	int len;
 	void *extdata;
 	struct TCPConn *next;
 } tcp_conn_t;
