@@ -120,8 +120,10 @@ int delfrom_tcpconn_list(int fd) {
 		else
 			b_list->next = t_list->next;
 
-		if (t_list)
+		if (t_list) {
 			free(t_list->extdata);
+			free(t_list->data);
+		}
 		free(t_list);
 		tcp_conn_list.num--;
 		return 0;
