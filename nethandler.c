@@ -171,8 +171,8 @@ void release_connection_with_fd(int index, int fd) {
 	detect_link(index);
 	close_connection(index, fd);
 	delfrom_tcpconn_list(fd);
-	AO_PRINTF("[%s] close, fd=%d, total=%d\n",
-			get_current_time(), fd, get_total_serlink_count());
+	AO_PRINTF("[%s] close, user=%s, fd=%d, total=%d\n",
+			get_current_time(), get_auth_user(), fd, get_total_serlink_count());
 }
 
 uint32 get_socket_local_port(int fd) {
@@ -390,8 +390,8 @@ int net_tcp_recv(int fd) {
 #else
 					t_conn->gwlink_status = GWLINK_START;
 #endif
-					AO_PRINTF("[%s] line %d: user=%s auth success, fd=%d\n", get_current_time(),
-							__LINE__, get_auth_user(), t_conn->fd);
+					AO_PRINTF("[%s] line %d: user=%s auth success, fd=%d, total=%d\n", get_current_time(),
+							__LINE__, get_auth_user(), t_conn->fd, get_total_serlink_count());
 				} else if (nbytes >= 2 && buf[0] == 0x01 && buf[1] == 0x01) {
 					t_conn->gwlink_status = GWLINK_AUTH;
 					AO_PRINTF("[%s] line %d: user=%s pass=%s, auth fail, fd=%d\n", get_current_time(),
